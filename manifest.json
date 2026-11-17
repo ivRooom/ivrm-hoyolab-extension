@@ -1,0 +1,1 @@
+{"action":{"default_popup":"src/popup.html","default_title":"ivRooom HoYoLAB Link"},"description":"ログイン中の HoYoLAB セッションを ivRooom ポータルへワンクリックで連携します。","host_permissions":["*://*.hoyolab.com/*","https://api.ivrm.jp/*"],"manifest_version":3,"name":"ivRooom HoYoLAB Link","permissions":["cookies"],"version":"0.1.0"}
