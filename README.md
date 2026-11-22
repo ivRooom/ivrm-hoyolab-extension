@@ -4,6 +4,8 @@
 
 HoYoLAB には公式の OAuth / API キーがないため、ポータルへの登録は通常「開発者ツールで Cookie を取り出して貼る」手順が必要です。この拡張はその手順をなくすためのものです。
 
+あわせて、拡張の中だけで完結する任意機能として、HoYoLAB デイリーチェックインの自動受取とギフトコードの自動交換があります（後述）。
+
 ## 使い方
 
 1. ブラウザで [HoYoLAB](https://www.hoyolab.com) にログインしておく
@@ -15,10 +17,23 @@ HoYoLAB には公式の OAuth / API キーがないため、ポータルへの�
 ## セキュリティ
 
 - 読む Cookie は `ltuid_v2` / `ltoken_v2` / `ltmid_v2` の3つだけです（HoYoLAB のセッションに必要な値）
-- 送信先は `https://api.ivrm.jp/hoyolab-pairing/exchange` のみです
-- 拡張は情報を一切保存しません（ストレージ権限も持っていません）
+- ペアリング連携の送信先は `https://api.ivrm.jp/hoyolab-pairing/exchange` のみです
+- ペアリング連携そのものは情報を保存しません。保存するのは下記の自動機能の設定・交換履歴・実行ログだけで、いずれもこのブラウザの中（`chrome.storage.local`）に閉じています
 - ポータル側では Cookie は暗号化して保存され、連携解除で即時削除されます
-- 権限は `cookies` と、hoyolab.com / api.ivrm.jp へのホスト許可だけです
+- 権限は `cookies` / `alarms` / `storage` と、hoyolab.com / hoyoverse.com / api.ivrm.jp / hoyo-codes.seria.moe へのホスト許可です（自動機能の通信先として hoyoverse.com と hoyo-codes を追加）
+
+## 自動チェックイン・コード交換（任意機能・既定オフ）
+
+ポップアップの「自動チェックイン・コード交換」でオンにすると、このブラウザの HoYoLAB ログインを使って次を自動で行います。ポータルは一切関与しません。
+
+- **デイリーチェックイン**: 毎日 01:05（JST）に原神／崩壊：スターレイル／ゼンレスゾーンゼロのチェックインを受け取ります。Chrome が閉じていた場合は、次回起動時に未受取分を取り戻します
+- **ギフトコード交換**: 3時間ごとに [hoyo-codes](https://github.com/seriaati/hoyo-codes) の公開 API で新しいコードを確認し、未交換のものを公式の交換 API で交換します。交換済みのコードは記録して再送しません。ゼンレスゾーンゼロの「同じ種別（接頭辞）では1つだけ交換できる」コードは、1件交換できたら残りを対象外にします
+- **制御**: マスタースイッチとタイトル別のオン／オフ、「今すぐ実行」、実行ログと交換件数の表示があります
+- **安全側の挙動**: 公式側でパズル認証（リスクコントロール）が必要になったら自動処理を止めて、公式ページでの手動操作をお願いする表示にします。ログインが切れているときは何もしません
+
+この機能は HoYoLAB のセッション Cookie の値を読んだり保存したりしません。ブラウザが公式ドメインへ通常送るログイン状態をそのまま使います。
+
+なお、この自動化は HoYoverse 公式の提供機能ではなく、公式はサードパーティ製ツールについて利用規約上の注意を公表しています。使うかどうかはアカウント本人の判断で、既定はオフです。
 
 ## 対応ブラウザ
 
@@ -41,10 +56,14 @@ npm test
 
 - `manifest.json` — MV3 マニフェスト
 - `src/popup.html` / `src/popup.css` / `src/popup.js` — ポップアップ UI
+- `src/background.js` — 自動機能のスケジュール実行（service worker、chrome.* の配線のみ）
 - `src/lib/hoyolab-cookie.mjs` — Cookie の選択・整形と応答解釈（純粋関数、テスト対象）
+- `src/lib/hoyolab-auto.mjs` — 自動機能のゲーム定義・応答分類・冪等管理・スケジュール判定（純粋関数、テスト対象）
+- `src/lib/hoyolab-auto-runner.mjs` — 自動機能の実行フロー（依存注入でテスト可能）
 - `test/` — `node --test` のユニットテスト
 
 ## 関連
 
 - 連携の仕組み（方式A）: ivRooom/ivrm-web #1245
 - ペアリング受け口の設計: ivRooom/ivrm-web #1279
+- 自動チェックイン・コード交換の設計: ivRooom/ivrm-hoyolab-extension #1

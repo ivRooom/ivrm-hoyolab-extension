@@ -102,6 +102,15 @@ button:disabled {
   cursor: default;
 }
 
+button.secondary {
+  margin-top: 10px;
+  padding: 7px;
+  background: transparent;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  font-size: 13px;
+}
+
 #result {
   margin-top: 10px;
   min-height: 1.6em;
@@ -110,4 +119,41 @@ button:disabled {
 .fineprint {
   margin: 12px 0 0;
   font-size: 11px;
+}
+
+.toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+  cursor: pointer;
+}
+
+.toggle input {
+  accent-color: var(--accent);
+  width: 16px;
+  height: 16px;
+  margin: 0;
+}
+
+#auto-games {
+  margin: 2px 0 6px 24px;
+}
+
+#auto-status {
+  margin-top: 6px;
+}
+
+.log {
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 11px;
+  color: var(--fg-subtle);
+}
+
+.log li {
+  padding: 2px 0;
+  border-top: 1px solid #1d2f3d;
+  word-break: break-all;
 }
