@@ -30,10 +30,20 @@ import {
   nextEndfieldAlarmTime,
 } from "./lib/skport.mjs";
 import { createSkportRunner } from "./lib/skport-runner.mjs";
+import {
+  AUTH_LOGIN_URLS,
+  AUTH_STATE_KEY,
+  CHECKIN_RETRY_INTERVAL_MINUTES,
+  anyAuthExpired,
+  markAuthNotified,
+  normalizeAuthState,
+  pendingAuthNotifications,
+} from "./lib/session-resilience.mjs";
 
 const CHECKIN_ALARM = "ivrm-auto-checkin";
 const CODES_ALARM = "ivrm-auto-codes";
 const ENDFIELD_ALARM = "ivrm-endfield-checkin";
+const RETRY_ALARM = "ivrm-auto-retry";
 const CODES_PERIOD_MINUTES = 180; // 3 hours, as designed
 const SKPORT_STATE_KEY = "skportState";
 
@@ -47,6 +57,7 @@ async function loadData() {
     AUTO_STORAGE_KEYS.state,
     AUTO_STORAGE_KEYS.log,
     GAME_SETTINGS_KEY,
+    AUTH_STATE_KEY,
   ]);
   return {
     settings: stored[AUTO_STORAGE_KEYS.settings],
@@ -54,6 +65,7 @@ async function loadData() {
     state: stored[AUTO_STORAGE_KEYS.state],
     log: stored[AUTO_STORAGE_KEYS.log],
     gameSettings: stored[GAME_SETTINGS_KEY],
+    authState: stored[AUTH_STATE_KEY],
   };
 }
 
@@ -68,6 +80,9 @@ async function saveData(patch) {
   if (patch.log !== undefined) {
     mapped[AUTO_STORAGE_KEYS.log] = patch.log;
   }
+  if (patch.authState !== undefined) {
+    mapped[AUTH_STATE_KEY] = patch.authState;
+  }
   if (Object.keys(mapped).length > 0) {
     await chrome.storage.local.set(mapped);
   }
@@ -79,12 +94,14 @@ async function loadSkportData() {
     AUTO_STORAGE_KEYS.log,
     GAME_SETTINGS_KEY,
     SKPORT_STATE_KEY,
+    AUTH_STATE_KEY,
   ]);
   return {
     settings: stored[AUTO_STORAGE_KEYS.settings],
     gameSettings: stored[GAME_SETTINGS_KEY],
     state: stored[SKPORT_STATE_KEY],
     log: stored[AUTO_STORAGE_KEYS.log],
+    authState: stored[AUTH_STATE_KEY],
   };
 }
 
@@ -95,6 +112,9 @@ async function saveSkportData(patch) {
   }
   if (patch.log !== undefined) {
     mapped[AUTO_STORAGE_KEYS.log] = patch.log;
+  }
+  if (patch.authState !== undefined) {
+    mapped[AUTH_STATE_KEY] = patch.authState;
   }
   if (Object.keys(mapped).length > 0) {
     await chrome.storage.local.set(mapped);
@@ -205,6 +225,76 @@ const skportRunner = createSkportRunner({
 });
 
 // ---------------------------------------------------------------
+// Login-expired surface (#10)
+//
+// The runners keep the shared auth state (lib/session-resilience)
+// current; this section renders it: a "!" badge while any login
+// is expired, and one notification per expiry episode. Clicking
+// the notification opens the provider's login page. The popup
+// reads the same state and shows its banner.
+
+const AUTH_NOTIFICATION_IDS = {
+  hoyolab: "ivrm-auth-hoyolab",
+  skport: "ivrm-auth-skport",
+};
+const AUTH_NOTIFICATION_CONTENT = {
+  hoyolab: {
+    title: "HoYoLAB のログインが切れています",
+    message:
+      "自動チェックインをお休みしています。クリックして HoYoLAB でログインし直してください。",
+    icon: "src/icon-genshin.png",
+  },
+  skport: {
+    title: "Skport のログインが切れています",
+    message:
+      "エンドフィールドの自動チェックインをお休みしています。クリックして Skport でログインし直してください。",
+    icon: "src/icon-endfield.png",
+  },
+};
+
+async function syncAuthSurface() {
+  try {
+    const stored = await chrome.storage.local.get([AUTH_STATE_KEY]);
+    let authState = normalizeAuthState(stored[AUTH_STATE_KEY]);
+    const expired = anyAuthExpired(authState);
+    await chrome.action.setBadgeText({ text: expired ? "!" : "" });
+    if (expired) {
+      await chrome.action.setBadgeBackgroundColor({ color: "#e8a13a" });
+    }
+    for (const provider of Object.keys(AUTH_NOTIFICATION_IDS)) {
+      const id = AUTH_NOTIFICATION_IDS[provider];
+      if (authState[provider].status !== "expired") {
+        // The episode ended (a run succeeded again): retire any
+        // notification still on screen.
+        await chrome.notifications.clear(id).catch(() => {});
+      }
+    }
+    for (const provider of pendingAuthNotifications(authState)) {
+      const content = AUTH_NOTIFICATION_CONTENT[provider];
+      await chrome.notifications.create(AUTH_NOTIFICATION_IDS[provider], {
+        type: "basic",
+        iconUrl: chrome.runtime.getURL(content.icon),
+        title: content.title,
+        message: content.message,
+      });
+      authState = markAuthNotified(authState, provider);
+    }
+    await chrome.storage.local.set({ [AUTH_STATE_KEY]: authState });
+  } catch {
+    // The badge and notifications are best-effort surfaces; the
+    // auth state itself is already persisted by the runners.
+  }
+}
+
+chrome.notifications.onClicked.addListener((notificationId) => {
+  for (const [provider, id] of Object.entries(AUTH_NOTIFICATION_IDS)) {
+    if (notificationId !== id) continue;
+    void chrome.tabs.create({ url: AUTH_LOGIN_URLS[provider] });
+    void chrome.notifications.clear(id);
+  }
+});
+
+// ---------------------------------------------------------------
 // scheduling
 
 async function ensureAlarms() {
@@ -229,6 +319,13 @@ async function ensureAlarms() {
       periodInMinutes: 24 * 60,
     });
   }
+  const retry = await chrome.alarms.get(RETRY_ALARM);
+  if (!retry) {
+    chrome.alarms.create(RETRY_ALARM, {
+      delayInMinutes: CHECKIN_RETRY_INTERVAL_MINUTES,
+      periodInMinutes: CHECKIN_RETRY_INTERVAL_MINUTES,
+    });
+  }
 }
 
 // One cycle at a time: an alarm firing during a manual run (or the
@@ -241,15 +338,20 @@ async function runGuarded(cycle) {
     return await cycle();
   } finally {
     running = false;
+    // Every run can change the login state; keep the badge and
+    // notifications in step with it.
+    void syncAuthSurface();
   }
 }
 
 chrome.runtime.onInstalled.addListener(() => {
   void ensureAlarms();
+  void syncAuthSurface();
 });
 
 chrome.runtime.onStartup.addListener(() => {
   void ensureAlarms();
+  void syncAuthSurface();
   // Catch-up: if Chrome was closed or asleep at the alarm time,
   // claim today's check-in now. Each runner's due check (the
   // HoYoLAB day in UTC+8, the Skport day from the 04:00 UTC+8
@@ -267,6 +369,14 @@ chrome.alarms.onAlarm.addListener((alarm) => {
     void runGuarded(() => runner.runCodeCycle());
   } else if (alarm.name === ENDFIELD_ALARM) {
     void runGuarded(() => skportRunner.runEndfieldCheckinCycle());
+  } else if (alarm.name === RETRY_ALARM) {
+    // Daytime retry (#10): re-run the check-in cycles; each
+    // runner spends from its own daily retry budget and stops
+    // once today's check-in has landed.
+    void runGuarded(async () => {
+      await runner.runCheckinCycle({ retry: true });
+      await skportRunner.runEndfieldCheckinCycle({ retry: true });
+    });
   }
 });
 

@@ -15,12 +15,10 @@
 //     stored and never sent anywhere else.
 //   deps.sign({path, body, timestamp, signToken}) -> Promise<string>
 //     The Skport request signature (see skport.mjs).
-//   deps.loadData() -> Promise<{settings, gameSettings, state, log}>
-//     settings/gameSettings are the shared automation settings
-//     (raw storage values); state is the Skport runner's own
-//     storage slice; log is the shared run log.
+//   deps.loadData() -> Promise<{settings, gameSettings, state, log,
+//     authState}>
 //   deps.saveData(patch) -> Promise<void>
-//     Persists any of {state, log} that changed.
+//     Persists any of {state, log, authState} that changed.
 //
 // Safety rules, mirroring the HoYoLAB runner:
 // - Nothing runs while the master switch is off, while Endfield
@@ -38,6 +36,12 @@ import {
   appendAutoLog,
   normalizeAutoSettings,
 } from "./hoyolab-auto.mjs";
+import {
+  applyAuthSignal,
+  isAuthOutcome,
+  normalizeRetryState,
+  shouldAttemptRetry,
+} from "./session-resilience.mjs";
 import {
   isGameAutomationEffective,
   migrateGameSettings,
@@ -79,6 +83,7 @@ function emptyState() {
     roles: [],
     riskControl: null,
     sessionMissing: false,
+    checkinRetry: { day: null, attempts: 0 },
     lastCheckinRunAt: null,
     sanity: null,
   };
@@ -95,7 +100,34 @@ export function createSkportRunner(deps) {
       }),
       state: { ...emptyState(), ...(data.state ?? {}) },
       log: Array.isArray(data.log) ? data.log : [],
+      authState: data.authState,
     };
+  }
+
+  // Folds an auth signal into the shared login state (#10):
+  // "expired" when the Skport session is gone, "ok" when the
+  // OAuth exchange demonstrably worked. Callers include
+  // data.authState in their next saveData patch.
+  function authSignal(data, signal) {
+    data.authState = applyAuthSignal(
+      data.authState,
+      "skport",
+      signal,
+      deps.now().getTime()
+    ).state;
+  }
+
+  // authenticate() plus the auth-state bookkeeping, so both the
+  // check-in cycle and the popup's sanity refresh keep the login
+  // state current.
+  async function authenticateAndTrack(data) {
+    const auth = await authenticate();
+    if (auth.error) {
+      if (isAuthOutcome(auth.error)) authSignal(data, "expired");
+    } else {
+      authSignal(data, "ok");
+    }
+    return auth;
   }
 
   function logEntry(data, entry) {
@@ -275,7 +307,7 @@ export function createSkportRunner(deps) {
   // --------------------------------------------------------------
   // Daily check-in cycle
 
-  async function runEndfieldCheckinCycle({ force = false } = {}) {
+  async function runEndfieldCheckinCycle({ force = false, retry = false } = {}) {
     const data = await load();
     const summary = { ran: false, results: {} };
     if (!automationAllowed(data)) {
@@ -296,11 +328,43 @@ export function createSkportRunner(deps) {
       summary.results[GAME_ID] = "already_done";
       return summary;
     }
+    if (retry) {
+      // Daytime retry (#10): a known-expired login is not retried
+      // (the auth surface asks the user to log in again instead),
+      // and the day's budget caps the extra attempts. The
+      // risk-control latch already returned above.
+      if (data.state.sessionMissing) {
+        summary.stopReason = "not_logged_in";
+        return summary;
+      }
+      const dayKey = skportDateKey(deps.now());
+      data.state.checkinRetry = normalizeRetryState(
+        data.state.checkinRetry,
+        dayKey
+      );
+      if (
+        !shouldAttemptRetry({
+          retry: data.state.checkinRetry,
+          dayKey,
+          pendingCount: 1,
+          stopped: null,
+        })
+      ) {
+        summary.stopReason = "retry_limit";
+        await deps.saveData({ state: data.state });
+        return summary;
+      }
+      data.state.checkinRetry = {
+        day: dayKey,
+        attempts: data.state.checkinRetry.attempts + 1,
+      };
+      await deps.saveData({ state: data.state });
+    }
     summary.ran = true;
     data.state.lastCheckinRunAt = deps.now().getTime();
     await deps.saveData({ state: data.state });
 
-    const auth = await authenticate();
+    const auth = await authenticateAndTrack(data);
     if (auth.error) {
       summary.stopReason = auth.error;
       summary.results[GAME_ID] = auth.error;
@@ -308,7 +372,7 @@ export function createSkportRunner(deps) {
         if (!data.state.sessionMissing) {
           data.state.sessionMissing = true;
           logEntry(data, {
-            kind: "system",
+            kind: "auth",
             game: GAME_ID,
             outcome: "not_logged_in",
           });
@@ -318,7 +382,11 @@ export function createSkportRunner(deps) {
         if (auth.detail) entry.detail = auth.detail;
         logEntry(data, entry);
       }
-      await deps.saveData({ state: data.state, log: data.log });
+      await deps.saveData({
+        state: data.state,
+        log: data.log,
+        authState: data.authState,
+      });
       return summary;
     }
     if (data.state.sessionMissing) {
@@ -340,7 +408,15 @@ export function createSkportRunner(deps) {
       if (rolesResult.error === "risk_control") {
         data.state.riskControl = { at: deps.now().getTime() };
       }
-      await deps.saveData({ state: data.state, log: data.log });
+      if (isAuthOutcome(rolesResult.error)) {
+        authSignal(data, "expired");
+        data.state.sessionMissing = true;
+      }
+      await deps.saveData({
+        state: data.state,
+        log: data.log,
+        authState: data.authState,
+      });
       return summary;
     }
     const roles = rolesResult.roles;
@@ -427,10 +503,15 @@ export function createSkportRunner(deps) {
       summary.stopReason = "risk_control";
     }
     if (outcome === "not_logged_in") {
+      authSignal(data, "expired");
       data.state.sessionMissing = true;
       summary.stopReason = "not_logged_in";
     }
-    await deps.saveData({ state: data.state, log: data.log });
+    await deps.saveData({
+      state: data.state,
+      log: data.log,
+      authState: data.authState,
+    });
     return outcome;
   }
 
@@ -448,8 +529,12 @@ export function createSkportRunner(deps) {
         autoSettings: data.settings,
       }).display[GAME_ID] === true;
     if (!visible) return { ok: false, reason: "hidden" };
-    const auth = await authenticate();
-    if (auth.error) return { ok: false, reason: auth.error };
+    const auth = await authenticateAndTrack(data);
+    if (auth.error) {
+      await deps.saveData({ authState: data.authState });
+      return { ok: false, reason: auth.error };
+    }
+    await deps.saveData({ authState: data.authState });
     let roles = data.state.roles;
     if (!Array.isArray(roles) || roles.length === 0) {
       const rolesResult = await fetchRoles(data, auth);
