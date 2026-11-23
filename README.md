@@ -77,3 +77,11 @@ npm test
 - 連携の仕組み（方式A）: ivRooom/ivrm-web #1245
 - ペアリング受け口の設計: ivRooom/ivrm-web #1279
 - 自動チェックイン・コード交換の設計: ivRooom/ivrm-hoyolab-extension #1
+
+## Chrome Web Store 版（読み取り専用）
+
+ストア配布用に、自動機能を除いた読み取り専用版を同じソースツリーからビルドします（#4）。
+
+- ビルド: `npm run build:store` → `dist/store-edition/` にパッケージを生成（権限は `storage` とポータル API のホスト権限のみ。自動チェックイン・コード交換のモジュール、Cookie・alarms 権限、公式アプリアイコンは含まれません）
+- ストア版のポップアップは `src/store/`、提出書類一式は `docs/store/`（プライバシーポリシー案・審査フォーム記入案・掲載文案・チェックリスト）
+- ステータス表示の実モジュール（`src/lib/hoyolab-link.mjs`、#3）が入るまではプレースホルダでビルドされ、成果物の `BUILD-INFO.json` にその旨が記録されます
