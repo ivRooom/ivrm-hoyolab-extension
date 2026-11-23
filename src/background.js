@@ -39,6 +39,11 @@ import {
   normalizeAuthState,
   pendingAuthNotifications,
 } from "./lib/session-resilience.mjs";
+import {
+  AUTH_REPORT_STORAGE_KEY,
+  LINK_TOKEN_STORAGE_KEY,
+  syncAuthReports,
+} from "./lib/auth-report.mjs";
 
 const CHECKIN_ALARM = "ivrm-auto-checkin";
 const CODES_ALARM = "ivrm-auto-codes";
@@ -284,6 +289,9 @@ async function syncAuthSurface() {
     // The badge and notifications are best-effort surfaces; the
     // auth state itself is already persisted by the runners.
   }
+  // Mirror any login-state transition to the portal (#1684 S2);
+  // independent of the surface above and fail-soft on its own.
+  await syncAuthReportsToPortal();
 }
 
 chrome.notifications.onClicked.addListener((notificationId) => {
@@ -291,6 +299,55 @@ chrome.notifications.onClicked.addListener((notificationId) => {
     if (notificationId !== id) continue;
     void chrome.tabs.create({ url: AUTH_LOGIN_URLS[provider] });
     void chrome.notifications.clear(id);
+  }
+});
+
+// ---------------------------------------------------------------
+// Auth-state reporting to the portal (#1684 S2)
+//
+// Mirrors transitions of the same login state to the portal,
+// which notifies opted-in members in a dedicated Discord
+// channel. Only {provider, status} is sent, authorized by the
+// link token the pairing saved; without a token this is a no-op.
+// Fail-soft throughout (lib/auth-report): a failed report is
+// retried by the next sync, never in a loop, and can never break
+// a check-in cycle. syncAuthSurface runs after every cycle, so
+// transitions are picked up there; the storage listener covers
+// the pairing moment itself, when the token first appears.
+
+async function syncAuthReportsToPortal() {
+  try {
+    const stored = await chrome.storage.local.get([
+      AUTH_STATE_KEY,
+      AUTH_REPORT_STORAGE_KEY,
+      LINK_TOKEN_STORAGE_KEY,
+    ]);
+    const { reported } = await syncAuthReports({
+      fetchFn: (url, init) => fetch(url, init),
+      token: stored[LINK_TOKEN_STORAGE_KEY],
+      authState: stored[AUTH_STATE_KEY],
+      reportedState: stored[AUTH_REPORT_STORAGE_KEY],
+    });
+    if (
+      JSON.stringify(reported) !==
+      JSON.stringify(stored[AUTH_REPORT_STORAGE_KEY] ?? null) &&
+      (reported.hoyolab !== null || reported.skport !== null)
+    ) {
+      await chrome.storage.local.set({ [AUTH_REPORT_STORAGE_KEY]: reported });
+    }
+  } catch {
+    // Reporting is best-effort; the local auth state is the
+    // source of truth and the next sync retries what is pending.
+  }
+}
+
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName !== "local") return;
+  const tokenChange = changes[LINK_TOKEN_STORAGE_KEY];
+  if (tokenChange && !tokenChange.oldValue && tokenChange.newValue) {
+    // Pairing just saved a token: report the current login
+    // states once as the baseline.
+    void syncAuthReportsToPortal();
   }
 });
 
