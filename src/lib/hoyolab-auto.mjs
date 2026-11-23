@@ -56,6 +56,9 @@ export const AUTO_GAMES = {
       "https://public-operation-nap.hoyolab.com/common/apicdkey/api/webExchangeCdkeyHyl",
     signUrl: "https://sg-public-api.hoyolab.com/event/luna/zzz/os/sign",
     actId: "e202406031448091",
+    // The ZZZ luna sign endpoint rejects requests without this
+    // header (the other games' sign endpoints do not need it).
+    signHeaders: { "x-rpc-signgame": "zzz" },
   },
 };
 
@@ -417,4 +420,43 @@ const OUTCOME_LABELS = {
 
 export function describeAutoOutcome(outcome) {
   return OUTCOME_LABELS[outcome] ?? outcome;
+}
+
+// A one-line diagnostic for a failed API answer, safe to show in
+// the run log and to store in chrome.storage: only the numeric
+// retcode and the server's message are used, the message is
+// stripped of control characters and truncated, and nothing else
+// from the response body is ever included.
+export function describeFailureDetail(body) {
+  if (!body || typeof body !== "object") return "";
+  const hasRetcode = typeof body.retcode === "number";
+  const message =
+    typeof body.message === "string"
+      ? body.message.replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, 60)
+      : "";
+  if (!hasRetcode && message === "") return "";
+  if (hasRetcode && message !== "") return `retcode ${body.retcode}: ${message}`;
+  if (hasRetcode) return `retcode ${body.retcode}`;
+  return message;
+}
+
+// ----------------------------------------------------------------
+// Beginner-friendly next-action hints for the outcomes a first-time
+// user is most likely to hit. Outcomes not listed here need no
+// explanation beyond their label.
+
+const OUTCOME_HINTS = {
+  failed:
+    "時間をおいて「今すぐ実行」を押すか、HoYoLAB 公式ページで一度手動でチェックインすると直ることがあります",
+  not_logged_in: "HoYoLAB にログインしてから開き直してください",
+  risk_control:
+    "HoYoLAB 公式ページで認証（パズル）を完了してから「今すぐ実行」を押してください",
+  rate_limited: "混雑しています。しばらく待つと自動で再試行します",
+  no_role:
+    "そのゲームのキャラクターが HoYoLAB アカウントに見つかりませんでした。遊んでいないゲームはオフにしてください",
+  fetch_failed: "コード一覧を取得できませんでした。次の確認で自動的に再試行します",
+};
+
+export function describeAutoOutcomeHint(outcome) {
+  return OUTCOME_HINTS[outcome] ?? "";
 }

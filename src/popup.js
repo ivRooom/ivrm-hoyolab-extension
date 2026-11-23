@@ -10,6 +10,7 @@ import {
   AUTO_STORAGE_KEYS,
   countSuccessfulRedeems,
   describeAutoOutcome,
+  describeAutoOutcomeHint,
   jstMonthKey,
   normalizeAutoSettings,
 } from "./lib/hoyolab-auto.mjs";
@@ -18,6 +19,7 @@ const sessionStatus = document.getElementById("session-status");
 const tokenInput = document.getElementById("pairing-token");
 const linkButton = document.getElementById("link-button");
 const result = document.getElementById("result");
+const linkState = document.getElementById("link-state");
 
 function setStatus(element, text, kind) {
   element.textContent = text;
@@ -84,7 +86,18 @@ linkButton.addEventListener("click", async () => {
     }
     const described = describeExchangeResult(response.status, body);
     setStatus(result, described.message, described.ok ? "ok" : "ng");
-    if (described.ok) tokenInput.value = "";
+    if (described.ok) {
+      tokenInput.value = "";
+      // Remember that this browser has linked before, so the next
+      // open can say so; the form stays usable for re-linking.
+      const linkedAt = Date.now();
+      try {
+        await chrome.storage.local.set({ portalLinkedAt: linkedAt });
+      } catch {
+        // Non-fatal: the link itself already succeeded.
+      }
+      renderLinkState(linkedAt);
+    }
   } catch {
     setStatus(
       result,
@@ -96,7 +109,34 @@ linkButton.addEventListener("click", async () => {
   }
 });
 
+// Shows when this browser last linked successfully (the timestamp
+// is stored by the pairing handler above). Uses the shared JST
+// formatter declared with the automation section below; it only
+// runs after the popup has fully loaded.
+function renderLinkState(linkedAt) {
+  if (typeof linkedAt === "number" && linkedAt > 0) {
+    setStatus(
+      linkState,
+      `ポータル連携済み（${timeFormat.format(new Date(linkedAt))}）`,
+      "ok"
+    );
+  } else {
+    linkState.textContent = "";
+    linkState.classList.remove("ok", "ng");
+  }
+}
+
+async function refreshLinkState() {
+  try {
+    const stored = await chrome.storage.local.get(["portalLinkedAt"]);
+    renderLinkState(stored.portalLinkedAt);
+  } catch {
+    renderLinkState(null);
+  }
+}
+
 refreshSessionStatus();
+refreshLinkState();
 
 // ---------------------------------------------------------------
 // Automation (check-in + gift codes). Settings live in
@@ -194,16 +234,67 @@ function renderAuto(data) {
       ? `交換できたコード: 今月 ${monthly} 件 / 通算 ${total} 件`
       : "";
 
-  autoLog.replaceChildren(
-    ...data.log.slice(-10).reverse().map((entry) => {
-      const item = document.createElement("li");
-      const when = timeFormat.format(new Date(entry.at));
-      const game = entry.game ? AUTO_GAMES[entry.game]?.label ?? "" : "";
-      const code = entry.code ? ` ${entry.code}` : "";
-      item.textContent = `${when} ${game}${code} — ${describeAutoOutcome(entry.outcome)}`;
-      return item;
-    })
-  );
+  if (data.log.length === 0) {
+    const item = document.createElement("li");
+    item.textContent =
+      "まだ実行履歴がありません。「今すぐ実行」を押すと今すぐ試せます。";
+    autoLog.replaceChildren(item);
+  } else {
+    autoLog.replaceChildren(
+      ...data.log.slice(-10).reverse().map(renderLogEntry)
+    );
+  }
+}
+
+const LOG_KIND_LABELS = {
+  checkin: "チェックイン",
+  redeem: "コード交換",
+  system: "お知らせ",
+};
+
+const LOG_OK_OUTCOMES = new Set(["success", "already_done", "already_used"]);
+const LOG_NG_OUTCOMES = new Set([
+  "failed",
+  "not_logged_in",
+  "risk_control",
+  "fetch_failed",
+]);
+
+function renderLogEntry(entry) {
+  const item = document.createElement("li");
+  const kind = document.createElement("span");
+  kind.className = "kind";
+  kind.textContent = LOG_KIND_LABELS[entry.kind] ?? "お知らせ";
+  item.append(kind);
+
+  const when = timeFormat.format(new Date(entry.at));
+  const game = entry.game ? AUTO_GAMES[entry.game]?.label ?? "" : "";
+  const code = entry.code ? ` ${entry.code}` : "";
+  item.append(document.createTextNode(` ${when} ${game}${code} — `));
+
+  const outcome = document.createElement("span");
+  outcome.textContent = describeAutoOutcome(entry.outcome);
+  if (LOG_OK_OUTCOMES.has(entry.outcome)) {
+    outcome.className = "ok";
+  } else if (LOG_NG_OUTCOMES.has(entry.outcome)) {
+    outcome.className = "ng";
+  } else {
+    outcome.className = "muted";
+  }
+  item.append(outcome);
+
+  if (typeof entry.detail === "string" && entry.detail !== "") {
+    item.append(document.createTextNode(`（${entry.detail}）`));
+  }
+
+  const hint = describeAutoOutcomeHint(entry.outcome);
+  if (hint !== "") {
+    const hintLine = document.createElement("div");
+    hintLine.className = "entry-hint";
+    hintLine.textContent = hint;
+    item.append(hintLine);
+  }
+  return item;
 }
 
 async function refreshAuto() {

@@ -64,7 +64,7 @@ async function fetchJson(url, options = {}) {
   const init = {
     method: options.method ?? "GET",
     credentials: "include",
-    headers: { Accept: "application/json" },
+    headers: { Accept: "application/json", ...(options.headers ?? {}) },
   };
   if (options.body !== undefined) {
     init.headers["Content-Type"] = "application/json";

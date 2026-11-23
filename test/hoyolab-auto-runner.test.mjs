@@ -20,7 +20,7 @@ function makeHarness(options = {}) {
     state: options.state ?? {},
     log: [],
   };
-  const calls = { fetch: [], sleep: [] };
+  const calls = { fetch: [], sleep: [], requests: [] };
   const codesByGame = options.codesByGame ?? { genshin: [], hkrpg: [], nap: [] };
   const rolesByBiz = options.rolesByBiz ?? {
     hk4e_global: [{ game_uid: "800000001", nickname: "旅人" }],
@@ -32,6 +32,7 @@ function makeHarness(options = {}) {
 
   async function fetchJson(url, fetchOptions = {}) {
     calls.fetch.push(url);
+    calls.requests.push({ url, options: fetchOptions });
     if (url.startsWith("https://hoyo-codes.seria.moe/codes")) {
       const game = new URL(url).searchParams.get("game");
       const codes = codesByGame[game];
@@ -162,6 +163,41 @@ test("an already-claimed answer also marks the day as done", async () => {
   assert.equal(data.state.checkin.genshin.day, "2026-01-15");
 });
 
+test("the ZZZ check-in sends the signgame header, the others do not", async () => {
+  const { runner, calls } = makeHarness();
+  await runner.runCheckinCycle();
+  const signRequests = calls.requests.filter(({ url }) => url.includes("/sign"));
+  assert.equal(signRequests.length, 3);
+  const zzz = signRequests.find(({ url }) => url.includes("luna/zzz"));
+  assert.deepEqual(zzz.options.headers, { "x-rpc-signgame": "zzz" });
+  assert.deepEqual(zzz.options.body, { act_id: "e202406031448091" });
+  for (const request of signRequests) {
+    if (request === zzz) continue;
+    assert.equal(request.options.headers, undefined);
+  }
+});
+
+test("a failed check-in logs the response detail", async () => {
+  const { runner, data } = makeHarness({
+    signResults: {
+      "luna/zzz": { retcode: -10035, message: "sign error", data: {} },
+    },
+  });
+  const summary = await runner.runCheckinCycle();
+  assert.equal(summary.results.zzz, "failed");
+  const entry = data.log.find(
+    (logEntry) => logEntry.kind === "checkin" && logEntry.game === "zzz"
+  );
+  assert.equal(entry.outcome, "failed");
+  assert.match(entry.detail, /-10035/);
+  assert.equal(entry.detail, "retcode -10035: sign error");
+  // Successful games carry no detail.
+  const genshin = data.log.find(
+    (logEntry) => logEntry.kind === "checkin" && logEntry.game === "genshin"
+  );
+  assert.equal(genshin.detail, undefined);
+});
+
 // ---------------------------------------------------------- codes
 
 test("new codes are redeemed once, spaced by the safety gap", async () => {
@@ -213,6 +249,19 @@ test("an unknown failure is retried once on the next cycle, then left", async ()
 
   const third = await runner.runCodeCycle();
   assert.equal(third.games.genshin.attempted, 0);
+});
+
+test("a failed redemption logs the detail, outcomes stay plain strings", async () => {
+  const { runner, data } = makeHarness({
+    codesByGame: { genshin: ["FLAKY"], hkrpg: [], nap: [] },
+    exchangeResults: { FLAKY: { retcode: -9999, message: "mystery", data: {} } },
+  });
+  const summary = await runner.runCodeCycle();
+  assert.equal(summary.games.genshin.outcomes.FLAKY, "failed");
+  const entry = data.log.find(
+    (logEntry) => logEntry.kind === "redeem" && logEntry.code === "FLAKY"
+  );
+  assert.equal(entry.detail, "retcode -9999: mystery");
 });
 
 test("a failed code fetch skips the game without recording anything", async () => {

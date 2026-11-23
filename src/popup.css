@@ -111,6 +111,20 @@ button.secondary {
   font-size: 13px;
 }
 
+.link-button {
+  display: inline-block;
+  margin-top: 8px;
+  padding: 5px 14px;
+  background: transparent;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  text-decoration: none;
+  cursor: pointer;
+}
+
 #result {
   margin-top: 10px;
   min-height: 1.6em;
@@ -148,7 +162,7 @@ button.secondary {
   margin: 10px 0 0;
   padding: 0;
   list-style: none;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--fg-subtle);
 }
 
@@ -156,4 +170,30 @@ button.secondary {
   padding: 2px 0;
   border-top: 1px solid #1d2f3d;
   word-break: break-all;
+}
+
+.log .kind {
+  display: inline-block;
+  padding: 0 5px;
+  border: 1px solid #2a3f4d;
+  border-radius: 4px;
+  font-size: 10px;
+  color: var(--fg-subtle);
+}
+
+.log .ok {
+  color: var(--ok);
+}
+
+.log .ng {
+  color: var(--ng);
+}
+
+.log .muted {
+  color: var(--fg-subtle);
+}
+
+.log .entry-hint {
+  font-size: 11px;
+  color: var(--fg-subtle);
 }

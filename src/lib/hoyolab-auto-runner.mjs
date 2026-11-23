@@ -36,6 +36,7 @@ import {
   applyRedeemResult,
   classifyExchangeResponse,
   classifySignResponse,
+  describeFailureDetail,
   enabledGameIds,
   hoyolabDateKey,
   isCheckinDue,
@@ -126,17 +127,22 @@ export function createAutoRunner(deps) {
         continue;
       }
       let outcome;
+      let detail = "";
       try {
-        const { status, body } = await deps.fetchJson(game.signUrl, {
-          method: "POST",
-          body: { act_id: game.actId },
-        });
+        const options = { method: "POST", body: { act_id: game.actId } };
+        if (game.signHeaders) options.headers = game.signHeaders;
+        const { status, body } = await deps.fetchJson(game.signUrl, options);
         outcome = classifySignResponse(status, body);
+        if (outcome !== "success" && outcome !== "already_done") {
+          detail = describeFailureDetail(body);
+        }
       } catch {
         outcome = "failed";
       }
       summary.results[gameId] = outcome;
-      logEntry(data, { kind: "checkin", game: gameId, outcome });
+      const entry = { kind: "checkin", game: gameId, outcome };
+      if (detail !== "") entry.detail = detail;
+      logEntry(data, entry);
       if (outcome === "success" || outcome === "already_done") {
         data.state.checkin[gameId] = {
           day: hoyolabDateKey(deps.now()),
@@ -200,6 +206,9 @@ export function createAutoRunner(deps) {
     return null;
   }
 
+  // Returns the outcome plus a sanitized failure detail for the
+  // run log; the detail is only the retcode and server message
+  // (see describeFailureDetail) and is empty on success.
   async function redeemOne(game, role, code) {
     const params = new URLSearchParams({
       game_biz: game.gameBiz,
@@ -213,9 +222,13 @@ export function createAutoRunner(deps) {
       const { status, body } = await deps.fetchJson(
         `${game.exchangeUrl}?${params.toString()}`
       );
-      return classifyExchangeResponse(status, body);
+      const outcome = classifyExchangeResponse(status, body);
+      return {
+        outcome,
+        detail: outcome === "success" ? "" : describeFailureDetail(body),
+      };
     } catch {
-      return "failed";
+      return { outcome: "failed", detail: "" };
     }
   }
 
@@ -315,29 +328,33 @@ export function createAutoRunner(deps) {
         }
         if (!firstAttempt) await deps.sleep(REDEEM_GAP_MS);
         firstAttempt = false;
-        const outcome = await redeemOne(game, role, entry.code);
+        const { outcome, detail } = await redeemOne(game, role, entry.code);
         gameSummary.attempted += 1;
         gameSummary.outcomes[entry.code] = outcome;
         if (outcome === "risk_control") {
           latchRiskControl(data, gameId);
-          logEntry(data, {
+          const stopEntry = {
             kind: "redeem",
             game: gameId,
             code: entry.code,
             outcome,
-          });
+          };
+          if (detail !== "") stopEntry.detail = detail;
+          logEntry(data, stopEntry);
           await deps.saveData({ state: data.state, log: data.log });
           summary.stopReason = "risk_control";
           return summary;
         }
         if (outcome === "not_logged_in") {
           data.state.sessionMissing = true;
-          logEntry(data, {
+          const stopEntry = {
             kind: "redeem",
             game: gameId,
             code: entry.code,
             outcome,
-          });
+          };
+          if (detail !== "") stopEntry.detail = detail;
+          logEntry(data, stopEntry);
           await deps.saveData({ state: data.state, log: data.log });
           summary.stopReason = "not_logged_in";
           return summary;
@@ -354,12 +371,14 @@ export function createAutoRunner(deps) {
           deps.now().getTime(),
           knownCodes
         );
-        logEntry(data, {
+        const attemptEntry = {
           kind: "redeem",
           game: gameId,
           code: entry.code,
           outcome,
-        });
+        };
+        if (detail !== "") attemptEntry.detail = detail;
+        logEntry(data, attemptEntry);
         await deps.saveData({ records: data.records, log: data.log });
         if (outcome === "rate_limited") break;
       }

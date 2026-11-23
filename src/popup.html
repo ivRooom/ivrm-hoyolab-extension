@@ -16,6 +16,13 @@
       <section>
         <h2>1. HoYoLAB のログイン状態</h2>
         <p id="session-status" class="status">確認しています…</p>
+        <a
+          class="link-button"
+          href="https://www.hoyolab.com/"
+          target="_blank"
+          rel="noreferrer"
+          >HoYoLAB を開く</a
+        >
       </section>
 
       <section>
@@ -23,12 +30,20 @@
         <p class="hint">
           ポータルのプロフィール（HoYoLAB連携）で「ペアリングコードを表示」を押し、出てきたコードを貼ってください。コードは10分で期限切れになります。
         </p>
+        <a
+          class="link-button"
+          href="https://member.ivrm.jp/profile"
+          target="_blank"
+          rel="noreferrer"
+          >ポータルの連携ページを開く</a
+        >
         <textarea
           id="pairing-token"
           rows="3"
           spellcheck="false"
           placeholder="ペアリングコードを貼り付け"
         ></textarea>
+        <p id="link-state" class="status"></p>
       </section>
 
       <button id="link-button" type="button">連携する</button>
@@ -58,6 +73,9 @@
             <span>ゼンレスゾーンゼロ</span>
           </label>
         </div>
+        <p class="hint">
+          報酬は各ゲーム内のメールに届きます。チェックインは毎日 01:05、コード確認は3時間ごとです。
+        </p>
         <p id="auto-status" class="status">状態を読み込んでいます…</p>
         <p id="auto-counts" class="hint"></p>
         <button id="auto-run-now" type="button" class="secondary">

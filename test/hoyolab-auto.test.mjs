@@ -7,6 +7,8 @@ import {
   classifySignResponse,
   countSuccessfulRedeems,
   defaultAutoSettings,
+  describeAutoOutcomeHint,
+  describeFailureDetail,
   enabledGameIds,
   familyKeyFor,
   hoyolabDateKey,
@@ -274,4 +276,58 @@ test("the run log is capped at the newest entries", () => {
   assert.equal(log.length, 100);
   assert.equal(log[0].at, 20);
   assert.equal(log.at(-1).at, 119);
+});
+
+// ---------------------------------------------------------- diagnostics & hints
+
+test("failure details carry only the retcode and the message", () => {
+  assert.equal(
+    describeFailureDetail({ retcode: -10035, message: "sign error", data: {} }),
+    "retcode -10035: sign error"
+  );
+  assert.equal(describeFailureDetail({ retcode: -1 }), "retcode -1");
+  assert.equal(describeFailureDetail({ message: "boom" }), "boom");
+  assert.equal(describeFailureDetail({ retcode: 0, message: "OK" }), "retcode 0: OK");
+});
+
+test("failure details are empty without a retcode or a message", () => {
+  assert.equal(describeFailureDetail(null), "");
+  assert.equal(describeFailureDetail(undefined), "");
+  assert.equal(describeFailureDetail("nope"), "");
+  assert.equal(describeFailureDetail({}), "");
+  assert.equal(describeFailureDetail({ data: { gt: "x" } }), "");
+  assert.equal(describeFailureDetail({ retcode: "0", message: 42 }), "");
+});
+
+test("failure details truncate and sanitize the message", () => {
+  const long = "x".repeat(100);
+  assert.equal(
+    describeFailureDetail({ retcode: -1, message: long }),
+    `retcode -1: ${"x".repeat(60)}`
+  );
+  assert.equal(
+    describeFailureDetail({ message: "a\nb\tc\u0007d" }),
+    "abcd"
+  );
+  assert.equal(describeFailureDetail({ message: "  padded  " }), "padded");
+});
+
+test("outcome hints exist for the outcomes a beginner hits", () => {
+  for (const outcome of [
+    "failed",
+    "not_logged_in",
+    "risk_control",
+    "rate_limited",
+    "no_role",
+    "fetch_failed",
+  ]) {
+    assert.notEqual(describeAutoOutcomeHint(outcome), "", outcome);
+  }
+  assert.equal(
+    describeAutoOutcomeHint("not_logged_in"),
+    "HoYoLAB にログインしてから開き直してください"
+  );
+  assert.equal(describeAutoOutcomeHint("success"), "");
+  assert.equal(describeAutoOutcomeHint("already_done"), "");
+  assert.equal(describeAutoOutcomeHint("something_unknown"), "");
 });
