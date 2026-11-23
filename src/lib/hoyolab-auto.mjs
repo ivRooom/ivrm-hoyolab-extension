@@ -96,7 +96,7 @@ export function defaultAutoSettings() {
   };
 }
 
-export function normalizeAutoSettings(raw) {
+export function normalizeAutoSettings(raw, gameSettings) {
   const settings = defaultAutoSettings();
   if (raw && typeof raw === "object") {
     if (typeof raw.enabled === "boolean") settings.enabled = raw.enabled;
@@ -105,6 +105,22 @@ export function normalizeAutoSettings(raw) {
         if (typeof raw.games[id] === "boolean") {
           settings.games[id] = raw.games[id];
         }
+      }
+    }
+  }
+  // Per-game settings (#6) win over the legacy per-game switches
+  // when present: a game only automates when it is both visible
+  // and automation-enabled there. The popup keeps the legacy
+  // switches synced to the same effective values, so the two
+  // sources agree; this override is the belt-and-braces path for
+  // storage written before that sync existed.
+  if (gameSettings && typeof gameSettings === "object") {
+    for (const id of AUTO_GAME_IDS) {
+      const display = gameSettings.display?.[id];
+      const automation = gameSettings.automation?.[id];
+      if (typeof display === "boolean" || typeof automation === "boolean") {
+        settings.games[id] =
+          (display ?? true) && (automation ?? settings.games[id]);
       }
     }
   }

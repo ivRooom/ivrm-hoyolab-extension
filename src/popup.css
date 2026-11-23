@@ -199,13 +199,20 @@ button.secondary {
   flex-shrink: 0;
 }
 
-#auto-games {
-  margin: 2px 0 6px 24px;
+#game-settings {
+  margin: 2px 0 6px;
 }
 
-#auto-games .toggle {
+.game-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   padding: 5px 0;
   font-size: 13.5px;
+}
+
+.game-row .game-label {
+  flex: 1;
 }
 
 .game-icon {
@@ -213,6 +220,67 @@ button.secondary {
   height: 26px;
   border-radius: 7px;
   flex-shrink: 0;
+}
+
+.game-dot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  color: #04222a;
+  font-size: 12px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.mini-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--fg-subtle);
+  cursor: pointer;
+}
+
+.mini-toggle input {
+  accent-color: var(--accent);
+  width: 16px;
+  height: 16px;
+  margin: 0;
+}
+
+.sanity-box {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 1px solid #1f3a4a;
+  border-radius: 10px;
+}
+
+.sanity-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sanity-bar {
+  flex: 1;
+  height: 8px;
+  border-radius: 999px;
+  background: #1d2f3d;
+  overflow: hidden;
+}
+
+.sanity-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--accent), var(--accent3));
+}
+
+.sanity-box .link-button {
+  margin-left: 8px;
 }
 
 #auto-status {
