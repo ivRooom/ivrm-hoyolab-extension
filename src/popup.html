@@ -7,6 +7,7 @@
   </head>
   <body>
     <main>
+      <img class="banner" src="header-banner.webp" alt="" />
       <h1>ivRooom HoYoLAB Link</h1>
       <p class="lead">
         ログイン中の HoYoLAB セッションを、ivRooom
@@ -14,7 +15,7 @@
       </p>
 
       <section>
-        <h2>1. HoYoLAB のログイン状態</h2>
+        <h2><span class="step-no">1</span>HoYoLAB のログイン状態</h2>
         <p id="session-status" class="status">確認しています…</p>
         <a
           class="link-button"
@@ -26,7 +27,7 @@
       </section>
 
       <section>
-        <h2>2. ペアリングコード</h2>
+        <h2><span class="step-no">2</span>ペアリングコード</h2>
         <p class="hint">
           ポータルのプロフィール（HoYoLAB連携）で「ペアリングコードを表示」を押し、出てきたコードを貼ってください。コードは10分で期限切れになります。
         </p>
@@ -50,11 +51,16 @@
       <p id="result" class="status" role="status"></p>
 
       <section>
-        <h2>3. 自動チェックイン・コード交換</h2>
-        <p class="hint">
-          このブラウザの HoYoLAB ログインを使って、デイリーチェックインの受取（毎日
-          01:05）と、新しいギフトコードの交換（3時間ごと）を自動で行います。どちらも任意設定で、既定はオフです。
-        </p>
+        <div class="auto-head">
+          <img class="mascot" src="mascot.webp" alt="" />
+          <div>
+            <h2><span class="step-no">3</span>自動チェックイン・コード交換</h2>
+            <p class="hint">
+              このブラウザの HoYoLAB ログインを使って、デイリーチェックインの受取（毎日
+              01:05）と、新しいギフトコードの交換（3時間ごと）を自動で行います。どちらも任意設定で、既定はオフです。
+            </p>
+          </div>
+        </div>
         <label class="toggle">
           <input id="auto-enabled" type="checkbox" />
           <span>自動チェックイン・コード交換を使う</span>
@@ -62,14 +68,17 @@
         <div id="auto-games">
           <label class="toggle">
             <input id="auto-game-genshin" type="checkbox" />
+            <img class="game-icon" src="icon-genshin.png" alt="" />
             <span>原神</span>
           </label>
           <label class="toggle">
             <input id="auto-game-starrail" type="checkbox" />
+            <img class="game-icon" src="icon-starrail.png" alt="" />
             <span>崩壊：スターレイル</span>
           </label>
           <label class="toggle">
             <input id="auto-game-zzz" type="checkbox" />
+            <img class="game-icon" src="icon-zzz.png" alt="" />
             <span>ゼンレスゾーンゼロ</span>
           </label>
         </div>
