@@ -11,8 +11,6 @@ import {
   LINK_TOKEN_STORAGE_KEY,
 } from "./lib/hoyolab-link.mjs";
 import {
-  AUTO_GAME_IDS,
-  AUTO_GAMES,
   AUTO_STORAGE_KEYS,
   countSuccessfulRedeems,
   describeAutoOutcome,
@@ -20,6 +18,15 @@ import {
   jstMonthKey,
   normalizeAutoSettings,
 } from "./lib/hoyolab-auto.mjs";
+import {
+  GAME_IDS,
+  GAME_INFO,
+  GAME_SETTINGS_KEY,
+  isGameAutomationEffective,
+  migrateGameSettings,
+} from "./lib/game-settings.mjs";
+
+const SKPORT_STATE_KEY = "skportState";
 
 const sessionStatus = document.getElementById("session-status");
 const tokenInput = document.getElementById("pairing-token");
@@ -291,19 +298,26 @@ summaryRefresh.addEventListener("click", refreshLinkSummary);
 refreshLinkSummary();
 
 // ---------------------------------------------------------------
-// Automation (check-in + gift codes). Settings live in
-// chrome.storage.local and are read by the service worker on every
-// run; this section only edits them and renders the state and log
-// the worker leaves behind.
+// Automation (check-in + gift codes) and per-game settings (#6).
+// Settings live in chrome.storage.local and are read by the
+// service worker on every run; this section only edits them and
+// renders the state and log the workers leave behind.
+//
+// Two storage shapes are kept in sync here:
+// - "gameSettings" (#6): per-game display / automation switches
+//   for every game, the canonical model the popup edits.
+// - "autoSettings" (legacy): the HoYoLAB master switch plus its
+//   per-game switches, synced to the effective values
+//   (display && automation) whenever the popup writes settings,
+//   so the HoYoLAB worker sees the same picture either way.
 
 const autoEnabled = document.getElementById("auto-enabled");
 const autoStatus = document.getElementById("auto-status");
 const autoCounts = document.getElementById("auto-counts");
 const autoLog = document.getElementById("auto-log");
 const autoRunNow = document.getElementById("auto-run-now");
-const autoGameInputs = Object.fromEntries(
-  AUTO_GAME_IDS.map((id) => [id, document.getElementById(`auto-game-${id}`)])
-);
+const gameSettingsBox = document.getElementById("game-settings");
+const gameStatusBox = document.getElementById("game-status");
 
 const timeFormat = new Intl.DateTimeFormat("ja-JP", {
   timeZone: "Asia/Tokyo",
@@ -319,11 +333,19 @@ async function readAutoData() {
     AUTO_STORAGE_KEYS.records,
     AUTO_STORAGE_KEYS.state,
     AUTO_STORAGE_KEYS.log,
+    GAME_SETTINGS_KEY,
+    SKPORT_STATE_KEY,
   ]);
+  const rawSettings = stored[AUTO_STORAGE_KEYS.settings];
   return {
-    settings: normalizeAutoSettings(stored[AUTO_STORAGE_KEYS.settings]),
+    settings: normalizeAutoSettings(rawSettings),
+    gameSettings: migrateGameSettings({
+      gameSettings: stored[GAME_SETTINGS_KEY],
+      autoSettings: rawSettings,
+    }),
     records: stored[AUTO_STORAGE_KEYS.records] ?? {},
     state: stored[AUTO_STORAGE_KEYS.state] ?? {},
+    skportState: stored[SKPORT_STATE_KEY] ?? {},
     log: Array.isArray(stored[AUTO_STORAGE_KEYS.log])
       ? stored[AUTO_STORAGE_KEYS.log]
       : [],
@@ -336,25 +358,185 @@ async function writeAutoSettings(settings) {
   });
 }
 
-function renderAuto(data) {
-  autoEnabled.checked = data.settings.enabled;
-  for (const id of AUTO_GAME_IDS) {
-    autoGameInputs[id].checked = data.settings.games[id];
-    autoGameInputs[id].disabled = !data.settings.enabled;
+// Persists the per-game settings and mirrors the effective
+// automation values into the legacy HoYoLAB switches.
+async function writeGameSettings(data) {
+  const games = {};
+  for (const id of GAME_IDS) {
+    if (GAME_INFO[id].platform !== "hoyolab") continue;
+    games[id] = isGameAutomationEffective(data.gameSettings, id);
+  }
+  await chrome.storage.local.set({
+    [GAME_SETTINGS_KEY]: data.gameSettings,
+    [AUTO_STORAGE_KEYS.settings]: { ...data.settings, games },
+  });
+  data.settings = normalizeAutoSettings(data.settings, data.gameSettings);
+}
+
+// One row per game: icon (with a text-dot fallback when the icon
+// file is not packaged), the label, and the display / automation
+// switches. Hidden games keep their row here — this list is the
+// settings screen — but disappear from the status area and from
+// every scheduled run.
+function renderGameSettings(data) {
+  const rows = GAME_IDS.map((id) => {
+    const info = GAME_INFO[id];
+    const row = document.createElement("div");
+    row.className = "game-row";
+
+    const icon = document.createElement("img");
+    icon.className = "game-icon";
+    icon.src = info.icon;
+    icon.alt = "";
+    icon.addEventListener("error", () => {
+      const dot = document.createElement("span");
+      dot.className = "game-dot";
+      dot.textContent = info.label.slice(0, 1);
+      icon.replaceWith(dot);
+    });
+    row.append(icon);
+
+    const label = document.createElement("span");
+    label.className = "game-label";
+    label.textContent = info.label;
+    row.append(label);
+
+    const displayLabel = document.createElement("label");
+    displayLabel.className = "mini-toggle";
+    const displayInput = document.createElement("input");
+    displayInput.type = "checkbox";
+    displayInput.dataset.game = id;
+    displayInput.dataset.switch = "display";
+    displayInput.checked = data.gameSettings.display[id];
+    displayLabel.append(displayInput, document.createTextNode("表示"));
+    row.append(displayLabel);
+
+    const autoLabel = document.createElement("label");
+    autoLabel.className = "mini-toggle";
+    const autoInput = document.createElement("input");
+    autoInput.type = "checkbox";
+    autoInput.dataset.game = id;
+    autoInput.dataset.switch = "automation";
+    autoInput.checked = data.gameSettings.automation[id];
+    autoInput.disabled =
+      !data.settings.enabled || !data.gameSettings.display[id];
+    autoLabel.append(autoInput, document.createTextNode("自動"));
+    row.append(autoLabel);
+
+    return row;
+  });
+  gameSettingsBox.replaceChildren(...rows);
+}
+
+// The Endfield sanity reading the worker cached, shown only while
+// the game is visible (#6). The refresh button asks the worker for
+// a fresh reading; viewing works with automation off.
+function renderGameStatus(data) {
+  gameStatusBox.replaceChildren();
+  if (!data.gameSettings.display.endfield) return;
+
+  const sanity = data.skportState.sanity;
+  const box = document.createElement("div");
+  box.className = "sanity-box";
+
+  const head = document.createElement("p");
+  head.className = "hint";
+  head.textContent = "アークナイツ：エンドフィールドの理性";
+  box.append(head);
+
+  if (sanity && typeof sanity.current === "number") {
+    const row = document.createElement("div");
+    row.className = "sanity-row";
+    const bar = document.createElement("div");
+    bar.className = "sanity-bar";
+    const fill = document.createElement("div");
+    fill.className = "sanity-fill";
+    const percent =
+      sanity.max > 0
+        ? Math.min(100, Math.round((sanity.current / sanity.max) * 100))
+        : 0;
+    fill.style.width = `${percent}%`;
+    bar.append(fill);
+    const text = document.createElement("span");
+    text.textContent = `${sanity.current} / ${sanity.max}`;
+    row.append(bar, text);
+    box.append(row);
+
+    const note = document.createElement("p");
+    note.className = "hint";
+    if (sanity.current >= sanity.max) {
+      note.textContent = "満タンです。";
+    } else if (typeof sanity.fullAt === "number") {
+      const mins = Math.max(
+        0,
+        Math.round((sanity.fullAt - Date.now()) / 60000)
+      );
+      const hours = Math.floor(mins / 60);
+      const rest = mins % 60;
+      const span =
+        hours > 0 ? `約${hours}時間${rest}分` : `約${rest}分`;
+      note.textContent = `満タンまで${span}${sanity.estimated ? "（推定）" : ""}・${timeFormat.format(new Date(sanity.at))} 時点`;
+    } else {
+      note.textContent = `${timeFormat.format(new Date(sanity.at))} 時点`;
+    }
+    box.append(note);
+  } else {
+    const note = document.createElement("p");
+    note.className = "hint";
+    note.textContent = data.skportState.sessionMissing
+      ? "Skport にログインすると理性が表示されます。"
+      : "まだ取得していません。下のボタンで取得できます。";
+    box.append(note);
   }
 
+  const refresh = document.createElement("button");
+  refresh.type = "button";
+  refresh.className = "secondary";
+  refresh.id = "sanity-refresh";
+  refresh.textContent = "理性を更新";
+  box.append(refresh);
+
+  const link = document.createElement("a");
+  link.className = "link-button";
+  link.href = "https://game.skport.com/endfield/sign-in";
+  link.target = "_blank";
+  link.rel = "noreferrer";
+  link.textContent = "Skport を開く";
+  box.append(link);
+
+  gameStatusBox.replaceChildren(box);
+}
+
+function renderAuto(data) {
+  autoEnabled.checked = data.settings.enabled;
+  renderGameSettings(data);
+  renderGameStatus(data);
+
+  const riskControl = data.state.riskControl || data.skportState.riskControl;
   if (!data.settings.enabled) {
     setStatus(autoStatus, "オフになっています。", null);
-  } else if (data.state.riskControl) {
+  } else if (riskControl) {
     setStatus(
       autoStatus,
-      "公式の認証（パズル）が必要になったため、自動処理を止めています。HoYoLAB の公式ページで一度手動でチェックインしてから、「今すぐ実行」を押してください。",
+      "公式の認証（パズル）が必要になったため、自動処理を止めています。公式ページで一度手動でチェックインしてから、「今すぐ実行」を押してください。",
+      "ng"
+    );
+  } else if (data.state.sessionMissing && data.skportState.sessionMissing) {
+    setStatus(
+      autoStatus,
+      "HoYoLAB / Skport にログインしていないため、自動処理を実行できていません。",
       "ng"
     );
   } else if (data.state.sessionMissing) {
     setStatus(
       autoStatus,
-      "HoYoLAB にログインしていないため、自動処理を実行できていません。",
+      "HoYoLAB にログインしていないため、HoYoLAB の自動処理を実行できていません。",
+      "ng"
+    );
+  } else if (data.skportState.sessionMissing) {
+    setStatus(
+      autoStatus,
+      "Skport にログインしていないため、エンドフィールドの自動処理を実行できていません。",
       "ng"
     );
   } else {
@@ -362,6 +544,11 @@ function renderAuto(data) {
     if (data.state.lastCheckinRunAt) {
       parts.push(
         `チェックイン最終実行: ${timeFormat.format(new Date(data.state.lastCheckinRunAt))}`
+      );
+    }
+    if (data.skportState.lastCheckinRunAt) {
+      parts.push(
+        `エンドフィールド最終実行: ${timeFormat.format(new Date(data.skportState.lastCheckinRunAt))}`
       );
     }
     if (data.state.lastCodeRunAt) {
@@ -404,6 +591,19 @@ const LOG_KIND_LABELS = {
   system: "お知らせ",
 };
 
+// The shared outcome hints mention HoYoLAB; Endfield entries get
+// Skport-specific wording for the outcomes they can produce.
+const ENDFIELD_OUTCOME_HINTS = {
+  failed:
+    "時間をおいて「今すぐ実行」を押すか、Skport 公式ページで一度手動でチェックインすると直ることがあります",
+  not_logged_in: "Skport にログインしてから開き直してください",
+  risk_control:
+    "Skport 公式ページで認証を完了してから「今すぐ実行」を押してください",
+  rate_limited: "混雑しています。しばらく待つと自動で再試行します",
+  no_role:
+    "エンドフィールドのキャラクターが Skport アカウントに見つかりませんでした。遊んでいないゲームはオフにしてください",
+};
+
 const LOG_OK_OUTCOMES = new Set(["success", "already_done", "already_used"]);
 const LOG_NG_OUTCOMES = new Set([
   "failed",
@@ -420,7 +620,7 @@ function renderLogEntry(entry) {
   item.append(kind);
 
   const when = timeFormat.format(new Date(entry.at));
-  const game = entry.game ? AUTO_GAMES[entry.game]?.label ?? "" : "";
+  const game = entry.game ? GAME_INFO[entry.game]?.label ?? "" : "";
   const code = entry.code ? ` ${entry.code}` : "";
   item.append(document.createTextNode(` ${when} ${game}${code} — `));
 
@@ -439,7 +639,10 @@ function renderLogEntry(entry) {
     item.append(document.createTextNode(`（${entry.detail}）`));
   }
 
-  const hint = describeAutoOutcomeHint(entry.outcome);
+  const hint =
+    entry.game === "endfield"
+      ? ENDFIELD_OUTCOME_HINTS[entry.outcome] ?? ""
+      : describeAutoOutcomeHint(entry.outcome);
   if (hint !== "") {
     const hintLine = document.createElement("div");
     hintLine.className = "entry-hint";
@@ -464,14 +667,31 @@ autoEnabled.addEventListener("change", async () => {
   await refreshAuto();
 });
 
-for (const id of AUTO_GAME_IDS) {
-  autoGameInputs[id].addEventListener("change", async () => {
-    const data = await readAutoData();
-    data.settings.games[id] = autoGameInputs[id].checked;
-    await writeAutoSettings(data.settings);
+gameSettingsBox.addEventListener("change", async (event) => {
+  const input = event.target;
+  const gameId = input?.dataset?.game;
+  const switchName = input?.dataset?.switch;
+  if (!gameId || !switchName) return;
+  const data = await readAutoData();
+  data.gameSettings[switchName][gameId] = input.checked;
+  await writeGameSettings(data);
+  await refreshAuto();
+});
+
+gameStatusBox.addEventListener("click", async (event) => {
+  if (event.target?.id !== "sanity-refresh") return;
+  const button = event.target;
+  button.disabled = true;
+  try {
+    await chrome.runtime.sendMessage({ type: "skport:refreshSanity" });
+  } catch {
+    // The worker answers when the refresh finishes; a closed
+    // channel just means we re-read the state below.
+  } finally {
+    button.disabled = false;
     await refreshAuto();
-  });
-}
+  }
+});
 
 autoRunNow.addEventListener("click", async () => {
   autoRunNow.disabled = true;
