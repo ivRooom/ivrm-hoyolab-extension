@@ -94,3 +94,16 @@ export function describeExchangeResult(status, body) {
     message: "連携できませんでした。しばらくしてからもう一度お試しください。",
   };
 }
+
+// The exchange response carries a read-only link token while the
+// portal's link token feature is on (ivrm-web #1675): the popup
+// stores it (lib/hoyolab-link.mjs) and uses it only to read the
+// member's current status summary. Returns the token to store, or
+// null when the response has none (feature off, or an older API)
+// — the status section then stays hidden.
+export function extractLinkToken(status, body) {
+  if (status !== 200 || body?.registered !== true) return null;
+  const token = body.linkToken;
+  if (typeof token !== "string" || token.trim() === "") return null;
+  return token;
+}
