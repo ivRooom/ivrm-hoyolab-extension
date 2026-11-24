@@ -7,6 +7,7 @@
   </head>
   <body>
     <main>
+      <img class="banner" src="header-banner.webp" alt="" />
       <h1>ivRooom HoYoLAB Link</h1>
       <p class="lead">
         ログイン中の HoYoLAB セッションを、ivRooom
@@ -14,30 +15,91 @@
       </p>
 
       <section>
-        <h2>1. HoYoLAB のログイン状態</h2>
+        <h2><span class="step-no">1</span>HoYoLAB のログイン状態</h2>
         <p id="session-status" class="status">確認しています…</p>
+        <a
+          class="link-button"
+          href="https://www.hoyolab.com/"
+          target="_blank"
+          rel="noreferrer"
+          >HoYoLAB を開く</a
+        >
       </section>
 
       <section>
-        <h2>2. ペアリングコード</h2>
+        <h2><span class="step-no">2</span>ペアリングコード</h2>
         <p class="hint">
           ポータルのプロフィール（HoYoLAB連携）で「ペアリングコードを表示」を押し、出てきたコードを貼ってください。コードは10分で期限切れになります。
         </p>
+        <a
+          class="link-button"
+          href="https://member.ivrm.jp/profile"
+          target="_blank"
+          rel="noreferrer"
+          >ポータルの連携ページを開く</a
+        >
         <textarea
           id="pairing-token"
           rows="3"
           spellcheck="false"
           placeholder="ペアリングコードを貼り付け"
         ></textarea>
+        <p id="link-state" class="status"></p>
       </section>
 
       <button id="link-button" type="button">連携する</button>
       <p id="result" class="status" role="status"></p>
 
+      <section>
+        <div class="auto-head">
+          <img class="mascot" src="mascot.webp" alt="" />
+          <div>
+            <h2><span class="step-no">3</span>自動チェックイン・コード交換</h2>
+            <p class="hint">
+              このブラウザの HoYoLAB ログインを使って、デイリーチェックインの受取（毎日
+              01:05）と、新しいギフトコードの交換（3時間ごと）を自動で行います。どちらも任意設定で、既定はオフです。
+            </p>
+          </div>
+        </div>
+        <label class="toggle">
+          <input id="auto-enabled" type="checkbox" />
+          <span>自動チェックイン・コード交換を使う</span>
+        </label>
+        <div id="auto-games">
+          <label class="toggle">
+            <input id="auto-game-genshin" type="checkbox" />
+            <img class="game-icon" src="icon-genshin.png" alt="" />
+            <span>原神</span>
+          </label>
+          <label class="toggle">
+            <input id="auto-game-starrail" type="checkbox" />
+            <img class="game-icon" src="icon-starrail.png" alt="" />
+            <span>崩壊：スターレイル</span>
+          </label>
+          <label class="toggle">
+            <input id="auto-game-zzz" type="checkbox" />
+            <img class="game-icon" src="icon-zzz.png" alt="" />
+            <span>ゼンレスゾーンゼロ</span>
+          </label>
+        </div>
+        <p class="hint">
+          報酬は各ゲーム内のメールに届きます。チェックインは毎日 01:05、コード確認は3時間ごとです。
+        </p>
+        <p id="auto-status" class="status">状態を読み込んでいます…</p>
+        <p id="auto-counts" class="hint"></p>
+        <button id="auto-run-now" type="button" class="secondary">
+          今すぐ実行
+        </button>
+        <ul id="auto-log" class="log"></ul>
+      </section>
+
       <p class="fineprint">
-        この拡張が読むのは HoYoLAB のセッション Cookie
-        （ltuid_v2 / ltoken_v2 / ltmid_v2）だけで、送信先は
-        api.ivrm.jp のみです。拡張の中に情報は保存されません。
+        ペアリング連携では、HoYoLAB のセッション Cookie （ltuid_v2 /
+        ltoken_v2 / ltmid_v2）を「連携する」を押したときだけ api.ivrm.jp
+        へ送ります。自動チェックイン・コード交換では Cookie
+        の値を読んだり保存したりせず、ブラウザのログイン状態のまま公式
+        API（hoyolab.com / hoyoverse.com）とコード一覧の hoyo-codes
+        へだけ通信します。自動機能の設定・交換履歴・実行ログは、このブラウザの中にだけ保存されます。
       </p>
     </main>
     <script type="module" src="popup.js"></script>
