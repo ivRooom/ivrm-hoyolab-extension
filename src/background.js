@@ -19,8 +19,18 @@
 
 import {
   AUTO_STORAGE_KEYS,
+  appendAutoLog,
   nextCheckinAlarmTime,
 } from "./lib/hoyolab-auto.mjs";
+import {
+  AUTO_LINK_MESSAGE_TYPE,
+  LINKED_AT_STORAGE_KEY,
+  LINKED_DISPLAY_NAME_STORAGE_KEY,
+  buildAutoLinkLogEntry,
+  createAutoLinkHandler,
+  isAutoLinkPageUrl,
+  parseAutoLinkTokenMessage,
+} from "./lib/auto-link.mjs";
 import { createAutoRunner } from "./lib/hoyolab-auto-runner.mjs";
 import { buildHoyolabCookieString } from "./lib/hoyolab-cookie.mjs";
 import { GAME_SETTINGS_KEY } from "./lib/game-settings.mjs";
@@ -152,16 +162,22 @@ async function fetchJson(url, options = {}) {
 // ---------------------------------------------------------------
 // HoYoLAB session presence
 
-// Presence check only: the pairing helper already knows how to
-// recognize a usable v2 session from the cookie jar. The string it
-// builds is used as a boolean here and is never sent or stored.
-async function hasSession() {
+// The pairing helper knows how to recognize a usable v2 session
+// from the cookie jar. Presence checks use the built string as a
+// boolean and never send or store it; the auto-link exchange
+// (#14) is the one flow that sends it, exactly like the popup's
+// manual code entry does.
+async function readSessionCookieString() {
   try {
     const cookies = await chrome.cookies.getAll({ domain: "hoyolab.com" });
-    return buildHoyolabCookieString(cookies) !== null;
+    return buildHoyolabCookieString(cookies);
   } catch {
-    return false;
+    return null;
   }
+}
+
+async function hasSession() {
+  return (await readSessionCookieString()) !== null;
 }
 
 const runner = createAutoRunner({
@@ -438,9 +454,79 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 });
 
 // ---------------------------------------------------------------
+// Auto-link token hand-off (#14)
+//
+// The content script on the portal's link page forwards the
+// pairing token the page minted after the member's consent click.
+// The exchange that follows is the manual code entry's exchange —
+// same endpoint, same cookie read at press time, same stored
+// record — only the token's transport differs. The result lands
+// in the execution log either way, so a failure is visible in the
+// popup exactly like a failed manual attempt, and the code entry
+// stays available as the fallback.
+
+const autoLinkHandler = createAutoLinkHandler({
+  fetchJson,
+  getCookieString: readSessionCookieString,
+  now: () => Date.now(),
+});
+
+async function handleAutoLinkToken(pairingToken) {
+  const result = await autoLinkHandler(pairingToken);
+  try {
+    const stored = await chrome.storage.local.get([AUTO_STORAGE_KEYS.log]);
+    await chrome.storage.local.set({
+      [AUTO_STORAGE_KEYS.log]: appendAutoLog(
+        stored[AUTO_STORAGE_KEYS.log],
+        buildAutoLinkLogEntry(result, Date.now())
+      ),
+    });
+    if (result.ok) {
+      // Mirror the popup's manual flow: stamp the link, keep the
+      // read-only link token the exchange issued (or drop the old
+      // one when it issued none), and remember the linked member's
+      // display name when the portal returned one.
+      const patch = { [LINKED_AT_STORAGE_KEY]: result.linkedAt };
+      if (result.linkToken) {
+        patch[LINK_TOKEN_STORAGE_KEY] = result.linkToken;
+      }
+      if (result.displayName) {
+        patch[LINKED_DISPLAY_NAME_STORAGE_KEY] = result.displayName;
+      }
+      await chrome.storage.local.set(patch);
+      if (!result.linkToken) {
+        await chrome.storage.local.remove(LINK_TOKEN_STORAGE_KEY);
+      }
+      if (!result.displayName) {
+        await chrome.storage.local.remove(LINKED_DISPLAY_NAME_STORAGE_KEY);
+      }
+    }
+  } catch {
+    // Persistence is best-effort: the exchange itself already
+    // happened server-side, and re-linking repairs the record.
+  }
+  return result;
+}
+
+// ---------------------------------------------------------------
 // popup messages
 
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message?.type === AUTO_LINK_MESSAGE_TYPE) {
+    // Only the link page's tab may hand over a token, and the
+    // token is shape-checked again here (lib/auto-link).
+    const parsed = parseAutoLinkTokenMessage(message);
+    if (!parsed || !isAutoLinkPageUrl(sender?.tab?.url)) {
+      sendResponse({ ok: false });
+      return false;
+    }
+    handleAutoLinkToken(parsed.pairingToken)
+      .then((result) =>
+        sendResponse({ ok: result.ok, message: result.message })
+      )
+      .catch(() => sendResponse({ ok: false }));
+    return true;
+  }
   if (message?.type === "auto:getData") {
     loadData()
       .then((data) => sendResponse({ ok: true, data }))

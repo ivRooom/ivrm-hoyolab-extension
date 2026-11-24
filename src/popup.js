@@ -6,6 +6,11 @@ import {
   PAIRING_EXCHANGE_URL,
 } from "./lib/hoyolab-cookie.mjs";
 import {
+  AUTO_LINK_PAGE_URL,
+  LINKED_DISPLAY_NAME_STORAGE_KEY,
+  extractDisplayName,
+} from "./lib/auto-link.mjs";
+import {
   fetchLinkSummary,
   formatRelativeTime,
   LINK_TOKEN_STORAGE_KEY,
@@ -37,6 +42,7 @@ const SKPORT_STATE_KEY = "skportState";
 const sessionStatus = document.getElementById("session-status");
 const tokenInput = document.getElementById("pairing-token");
 const linkButton = document.getElementById("link-button");
+const autoLinkButton = document.getElementById("auto-link-button");
 const result = document.getElementById("result");
 const linkState = document.getElementById("link-state");
 
@@ -69,6 +75,15 @@ async function refreshSessionStatus() {
     setStatus(sessionStatus, "ログイン状態を確認できませんでした。", "ng");
   }
 }
+
+// Auto-link (#14): opens the portal's link page in a new tab.
+// The member confirms there, the page hands the minted token to
+// the extension's content script, and the background runs the
+// exchange — this popup only has to open the page. The result is
+// visible here on the next open (link state + execution log).
+autoLinkButton.addEventListener("click", () => {
+  void chrome.tabs.create({ url: AUTO_LINK_PAGE_URL });
+});
 
 linkButton.addEventListener("click", async () => {
   const pairingToken = tokenInput.value.trim();
@@ -116,6 +131,7 @@ linkButton.addEventListener("click", async () => {
       // honors.
       const linkedAt = Date.now();
       const linkToken = extractLinkToken(response.status, body);
+      const displayName = extractDisplayName(response.status, body);
       try {
         await chrome.storage.local.set({ portalLinkedAt: linkedAt });
         if (linkToken) {
@@ -125,10 +141,17 @@ linkButton.addEventListener("click", async () => {
         } else {
           await chrome.storage.local.remove(LINK_TOKEN_STORAGE_KEY);
         }
+        if (displayName) {
+          await chrome.storage.local.set({
+            [LINKED_DISPLAY_NAME_STORAGE_KEY]: displayName,
+          });
+        } else {
+          await chrome.storage.local.remove(LINKED_DISPLAY_NAME_STORAGE_KEY);
+        }
       } catch {
         // Non-fatal: the link itself already succeeded.
       }
-      renderLinkState(linkedAt);
+      renderLinkState(linkedAt, displayName);
       refreshLinkSummary();
     }
   } catch {
@@ -146,11 +169,15 @@ linkButton.addEventListener("click", async () => {
 // is stored by the pairing handler above). Uses the shared JST
 // formatter declared with the automation section below; it only
 // runs after the popup has fully loaded.
-function renderLinkState(linkedAt) {
+function renderLinkState(linkedAt, displayName) {
   if (typeof linkedAt === "number" && linkedAt > 0) {
+    const who =
+      typeof displayName === "string" && displayName !== ""
+        ? `${displayName} さん・`
+        : "";
     setStatus(
       linkState,
-      `ポータル連携済み（${timeFormat.format(new Date(linkedAt))}）`,
+      `ポータル連携済み（${who}${timeFormat.format(new Date(linkedAt))}）`,
       "ok"
     );
   } else {
@@ -161,10 +188,16 @@ function renderLinkState(linkedAt) {
 
 async function refreshLinkState() {
   try {
-    const stored = await chrome.storage.local.get(["portalLinkedAt"]);
-    renderLinkState(stored.portalLinkedAt);
+    const stored = await chrome.storage.local.get([
+      "portalLinkedAt",
+      LINKED_DISPLAY_NAME_STORAGE_KEY,
+    ]);
+    renderLinkState(
+      stored.portalLinkedAt,
+      stored[LINKED_DISPLAY_NAME_STORAGE_KEY]
+    );
   } catch {
-    renderLinkState(null);
+    renderLinkState(null, null);
   }
 }
 

@@ -57,27 +57,26 @@
       </section>
 
       <section>
-        <h2><span class="step-no">2</span>ペアリングコード</h2>
+        <h2><span class="step-no">2</span>ポータル連携</h2>
         <p class="hint">
-          ポータルのプロフィール（HoYoLAB連携）で「ペアリングコードを表示」を押し、出てきたコードを貼ってください。コードは10分で期限切れになります。
+          ポータルの連携ページが開きます。ポータルにログインしていれば、ページのボタンひとつでコード入力なしに連携できます。
         </p>
-        <a
-          class="link-button"
-          href="https://member.ivrm.jp/profile"
-          target="_blank"
-          rel="noreferrer"
-          >ポータルの連携ページを開く</a
-        >
+        <button id="auto-link-button" type="button">ポータルと自動連携</button>
+        <p id="link-state" class="status"></p>
+        <p class="hint">
+          うまくいかないときは、ペアリングコードでも連携できます。ポータルのプロフィール（HoYoLAB連携）で「ペアリングコードを表示」を押し、出てきたコードを貼ってください。コードは10分で期限切れになります。
+        </p>
         <textarea
           id="pairing-token"
           rows="3"
           spellcheck="false"
           placeholder="ペアリングコードを貼り付け"
         ></textarea>
-        <p id="link-state" class="status"></p>
       </section>
 
-      <button id="link-button" type="button">連携する</button>
+      <button id="link-button" type="button" class="secondary">
+        ペアリングコードで連携する
+      </button>
       <p id="result" class="status" role="status"></p>
 
       <section id="link-summary" hidden>
@@ -127,8 +126,8 @@
 
       <p class="fineprint">
         ペアリング連携では、HoYoLAB のセッション Cookie （ltuid_v2 /
-        ltoken_v2 / ltmid_v2）を「連携する」を押したときだけ api.ivrm.jp
-        へ送ります。連携時にポータルが読み取り専用のトークンを返した場合は、そのトークンをこのブラウザに保存し、現在の状況（樹脂・開拓力など）の取得にだけ使います。連携し直すかポータルで連携を解除すると、前のトークンは使えなくなります。自動チェックイン・コード交換では HoYoLAB の Cookie
+        ltoken_v2 / ltmid_v2）を連携の操作をしたときだけ api.ivrm.jp
+        へ送ります。自動連携では、ポータルの連携ページで本人がボタンを押したときに発行される短時間のトークンを、この拡張がページから受け取って同じ連携を行います（コードの目視コピーが不要になるだけで、送るものは変わりません）。連携時にポータルが読み取り専用のトークンを返した場合は、そのトークンをこのブラウザに保存し、現在の状況（樹脂・開拓力など）の取得にだけ使います。連携し直すかポータルで連携を解除すると、前のトークンは使えなくなります。自動チェックイン・コード交換では HoYoLAB の Cookie
         の値を読んだり保存したりせず、ブラウザのログイン状態のまま公式
         API（hoyolab.com / hoyoverse.com）とコード一覧の hoyo-codes
         へだけ通信します。エンドフィールドでは、Skport のログイン
