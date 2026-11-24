@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <title>ivRooom 樹脂メモ（非公式）</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main>
+      <img class="banner" src="../header-banner.webp" alt="" />
+      <h1>ivRooom 樹脂メモ</h1>
+      <p class="lead">
+        ivRooom ポータルと連携して、原神の樹脂や崩壊：スターレイルの開拓力がどれくらい回復したかを、ポータル経由で表示します。読み取り専用で、ゲームへの操作は一切行いません。
+      </p>
+      <p class="unofficial">
+        ※ 本拡張は ivRooom による非公式のファンメイドツールです。HoYoverse /
+        HoYoLAB 公式とは関係ありません。
+      </p>
+
+      <section>
+        <h2><span class="step-no">1</span>ポータル連携</h2>
+        <p class="hint">
+          ポータルのプロフィール（HoYoLAB 連携）で発行される「連携トークン」を貼り付けてください。トークンは読み取り専用で、このブラウザの中にだけ保存されます。
+        </p>
+        <a
+          class="link-button"
+          href="https://member.ivrm.jp/profile"
+          target="_blank"
+          rel="noreferrer"
+          >ポータルの連携ページを開く</a
+        >
+        <input
+          id="link-token"
+          type="text"
+          spellcheck="false"
+          autocomplete="off"
+          placeholder="連携トークンを貼り付け"
+        />
+        <p id="link-state" class="status"></p>
+        <button id="save-token" type="button">トークンを保存する</button>
+        <button id="clear-token" type="button" class="secondary">
+          連携を解除する
+        </button>
+      </section>
+
+      <section>
+        <div class="status-head">
+          <img class="mascot" src="../mascot.webp" alt="" />
+          <div>
+            <h2><span class="step-no">2</span>現在の状況</h2>
+            <p class="hint">
+              ポータルが取得した最新のステータスです。ゲーム内の値そのものではなく、ポータルの最終取得時点の表示です。
+            </p>
+          </div>
+        </div>
+        <div id="status-rows"></div>
+        <p id="status-message" class="status">状態を読み込んでいます…</p>
+        <p id="status-updated" class="hint"></p>
+        <button id="refresh" type="button" class="secondary">更新する</button>
+      </section>
+
+      <p class="fineprint">
+        この拡張が扱うのは、あなたが貼り付けた連携トークンと、ポータルから取得するステータスの表示だけです。HoYoLAB
+        のログイン情報（Cookie）を読み取ることはなく、通信先は ivRooom
+        ポータル（api.ivrm.jp）のみです。自動チェックインなどの自動操作機能は、このストア版には含まれていません。
+      </p>
+    </main>
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>

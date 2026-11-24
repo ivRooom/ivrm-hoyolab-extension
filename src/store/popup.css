@@ -1,0 +1,246 @@
+:root {
+  color-scheme: dark;
+  --bg: #0b1116;
+  --panel: #111b24;
+  --fg: #e8f4f8;
+  --fg-subtle: #9db8c4;
+  --accent: #45d9e8;
+  --accent2: #ff8fb2;
+  --accent3: #ffd166;
+  --ok: #64f4bd;
+  --ng: #ff9a9a;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  width: 340px;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: "Segoe UI", system-ui, sans-serif;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+main {
+  padding: 14px 16px 16px;
+}
+
+.banner {
+  display: block;
+  width: 100%;
+  border-radius: 12px;
+  margin-bottom: 10px;
+}
+
+h1 {
+  margin: 0 0 6px;
+  font-size: 16px;
+  color: var(--accent);
+  background: linear-gradient(90deg, var(--accent), var(--accent2));
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+h2 {
+  margin: 0 0 4px;
+  font-size: 13px;
+  color: var(--accent);
+}
+
+.step-no {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  color: #04222a;
+  font-size: 11px;
+  font-weight: 700;
+  margin-right: 6px;
+  vertical-align: middle;
+  -webkit-text-fill-color: #04222a;
+}
+
+section {
+  margin-top: 12px;
+  padding: 10px 12px;
+  background: var(--panel);
+  border: 1px solid #1f3a4a;
+  border-radius: 14px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
+}
+
+.lead,
+.hint,
+.fineprint,
+.unofficial {
+  color: var(--fg-subtle);
+}
+
+.lead {
+  margin: 0;
+}
+
+.unofficial {
+  margin: 6px 0 0;
+  font-size: 11px;
+}
+
+.hint {
+  margin: 0 0 8px;
+  font-size: 12px;
+}
+
+.status {
+  margin: 0;
+}
+
+.status.ok {
+  color: var(--ok);
+}
+
+.status.ng {
+  color: var(--ng);
+}
+
+input[type="text"] {
+  width: 100%;
+  margin-top: 8px;
+  padding: 8px;
+  border: 1px solid #2a3f4d;
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+}
+
+button {
+  width: 100%;
+  margin-top: 10px;
+  padding: 10px;
+  border: 0;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--accent), var(--accent2));
+  color: #04222a;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 3px 10px rgba(69, 217, 232, 0.25);
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+button.secondary {
+  padding: 7px;
+  background: transparent;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  font-size: 13px;
+  box-shadow: none;
+}
+
+.link-button {
+  display: inline-block;
+  margin-top: 2px;
+  padding: 5px 14px;
+  background: transparent;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+#link-state {
+  margin-top: 8px;
+}
+
+.fineprint {
+  margin: 12px 0 0;
+  font-size: 11px;
+}
+
+.status-head {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.mascot {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 2px solid var(--accent);
+  flex-shrink: 0;
+}
+
+.game-row {
+  padding: 8px 0;
+  border-top: 1px solid #1d2f3d;
+}
+
+.game-row:first-child {
+  border-top: 0;
+}
+
+.game-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.marker {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  color: #04222a;
+  font-size: 13px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.game-label {
+  font-weight: 700;
+}
+
+.game-value {
+  margin-left: auto;
+  color: var(--accent3);
+  font-weight: 700;
+}
+
+.bar {
+  margin-top: 6px;
+  height: 8px;
+  border-radius: 999px;
+  background: #1d2f3d;
+  overflow: hidden;
+}
+
+.bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--accent), var(--accent2));
+}
+
+.game-row .hint {
+  margin: 4px 0 0;
+}
