@@ -111,3 +111,13 @@ npm test
 - 自動チェックイン・コード交換の設計: ivRooom/ivrm-hoyolab-extension #1
 - エンドフィールド対応の調査: ivRooom/ivrm-hoyolab-extension #5
 - ゲームごとの表示／自動設定: ivRooom/ivrm-hoyolab-extension #6
+
+## Chrome Web Store 版（読み取り専用）
+
+ストア配布用に、自動機能を除いた読み取り専用版を同じソースツリーからビルドします（#4）。
+
+- ビルド: `npm run build:store` → `dist/store-edition/` にパッケージを生成（権限は `storage` とポータル API のホスト権限のみ。自動チェックイン・コード交換・Skport のモジュール、Cookie・alarms・notifications 権限、公式アプリアイコンは含まれません。混入したらビルド自体が失敗します）
+- ストア版のポップアップは `src/store/`、提出書類一式は `docs/store/`（プライバシーポリシー案・審査フォーム記入案・掲載文案・チェックリスト）
+- ステータス表示は実モジュール（`src/lib/hoyolab-link.mjs`、#3）をリンクしてビルドされ、成果物の `BUILD-INFO.json` に `statusModule: "linked"` と記録されます。モジュールが見つからない場合のみプレースホルダにフォールバックし、その旨が記録されます（プレースホルダ版は提出不可）
+- 連携はポータルで発行した読み取り専用トークンの貼り付けのみです。ペアリングコード交換は HoYoLAB のセッション Cookie をポータルへ送る（資格情報の書き込み）ため、ストア版には含みません
+- ストアへの提出自体は別途の判断で行います（このビルド基盤は提出可能な状態の維持まで）
