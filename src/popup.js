@@ -1,9 +1,15 @@
 import {
   buildHoyolabCookieString,
   describeExchangeResult,
+  extractLinkToken,
   isPairingTokenShape,
   PAIRING_EXCHANGE_URL,
 } from "./lib/hoyolab-cookie.mjs";
+import {
+  fetchLinkSummary,
+  formatRelativeTime,
+  LINK_TOKEN_STORAGE_KEY,
+} from "./lib/hoyolab-link.mjs";
 import {
   AUTO_STORAGE_KEYS,
   countSuccessfulRedeems,
@@ -97,13 +103,27 @@ linkButton.addEventListener("click", async () => {
       tokenInput.value = "";
       // Remember that this browser has linked before, so the next
       // open can say so; the form stays usable for re-linking.
+      // When the exchange issued a read-only link token (#1675),
+      // store it for the status section; when it did not (the
+      // portal feature is off), drop any older token so the
+      // section never presents a credential the portal no longer
+      // honors.
       const linkedAt = Date.now();
+      const linkToken = extractLinkToken(response.status, body);
       try {
         await chrome.storage.local.set({ portalLinkedAt: linkedAt });
+        if (linkToken) {
+          await chrome.storage.local.set({
+            [LINK_TOKEN_STORAGE_KEY]: linkToken,
+          });
+        } else {
+          await chrome.storage.local.remove(LINK_TOKEN_STORAGE_KEY);
+        }
       } catch {
         // Non-fatal: the link itself already succeeded.
       }
       renderLinkState(linkedAt);
+      refreshLinkSummary();
     }
   } catch {
     setStatus(
@@ -144,6 +164,138 @@ async function refreshLinkState() {
 
 refreshSessionStatus();
 refreshLinkState();
+
+// ---------------------------------------------------------------
+// Current status (link summary). When the pairing exchange issued
+// a read-only link token, the popup reads the member's resin /
+// trailblaze power / exploration from the portal and shows it
+// above the automation section. Without a token the section only
+// appears — as a one-line hint — for browsers that linked before
+// the feature existed; never-linked browsers see nothing extra.
+
+const summarySection = document.getElementById("link-summary");
+const summaryBody = document.getElementById("link-summary-body");
+const summaryRefresh = document.getElementById("link-summary-refresh");
+
+function summaryHint(text) {
+  const hint = document.createElement("p");
+  hint.className = "hint";
+  hint.textContent = text;
+  return hint;
+}
+
+function renderSummaryRow(row) {
+  const item = document.createElement("div");
+  item.className = "summary-row";
+  const icon = document.createElement("img");
+  icon.className = "game-icon";
+  icon.src = row.icon;
+  icon.alt = "";
+  item.append(icon);
+
+  const main = document.createElement("div");
+  main.className = "summary-main";
+  const line = document.createElement("div");
+  line.className = "summary-line";
+  const name = document.createElement("span");
+  name.textContent = row.label;
+  const value = document.createElement("span");
+  value.className = "summary-value";
+  value.textContent = `${row.metricLabel} ${row.current} / ${row.max}`;
+  line.append(name, value);
+  main.append(line);
+
+  if (row.percent !== null) {
+    const meter = document.createElement("div");
+    meter.className = "meter";
+    const fill = document.createElement("div");
+    fill.className = "meter-fill";
+    fill.style.width = `${row.percent}%`;
+    meter.append(fill);
+    main.append(meter);
+  }
+  if (row.explorationPercent !== null) {
+    const sub = document.createElement("div");
+    sub.className = "summary-sub";
+    sub.textContent = `探索度 ${row.explorationPercent.toFixed(1)}%`;
+    main.append(sub);
+  }
+  item.append(main);
+  return item;
+}
+
+function renderLinkSummary(result) {
+  summaryRefresh.hidden = false;
+  if (result.kind === "unauthorized") {
+    summaryBody.replaceChildren(
+      summaryHint(
+        "連携の状態が変わったため、状況を表示できません。ポータルで連携し直してください。"
+      )
+    );
+    return;
+  }
+  if (result.kind === "failed") {
+    summaryBody.replaceChildren(
+      summaryHint("状況を取得できませんでした。「更新」でもう一度お試しください。")
+    );
+    return;
+  }
+  if (result.rows.length === 0) {
+    summaryBody.replaceChildren(
+      summaryHint("まだ表示できるデータがありません。ポータルにデータが届くと、ここにも表示されます。")
+    );
+    return;
+  }
+  const children = result.rows.map(renderSummaryRow);
+  const relative = formatRelativeTime(result.updatedAt, Date.now());
+  if (relative) {
+    const stamp = document.createElement("p");
+    stamp.className = "hint";
+    stamp.textContent = `最終更新: ${relative}`;
+    children.push(stamp);
+  }
+  summaryBody.replaceChildren(...children);
+}
+
+async function refreshLinkSummary() {
+  let stored = {};
+  try {
+    stored = await chrome.storage.local.get([
+      LINK_TOKEN_STORAGE_KEY,
+      "portalLinkedAt",
+    ]);
+  } catch {
+    stored = {};
+  }
+  const token = stored[LINK_TOKEN_STORAGE_KEY];
+  if (typeof token === "string" && token !== "") {
+    summarySection.hidden = false;
+    summaryRefresh.hidden = false;
+    summaryBody.replaceChildren(summaryHint("読み込んでいます…"));
+    renderLinkSummary(
+      await fetchLinkSummary((url, init) => fetch(url, init), token)
+    );
+    return;
+  }
+  if (typeof stored.portalLinkedAt === "number" && stored.portalLinkedAt > 0) {
+    // Linked before link tokens existed (or while the portal
+    // feature was off): one quiet line explaining how the section
+    // lights up, and no refresh button — there is nothing to read.
+    summarySection.hidden = false;
+    summaryRefresh.hidden = true;
+    summaryBody.replaceChildren(
+      summaryHint(
+        "ポータルで連携し直すと、ここに現在の樹脂や開拓力が表示されます。"
+      )
+    );
+    return;
+  }
+  summarySection.hidden = true;
+}
+
+summaryRefresh.addEventListener("click", refreshLinkSummary);
+
+refreshLinkSummary();
 
 // ---------------------------------------------------------------
 // Automation (check-in + gift codes) and per-game settings (#6).

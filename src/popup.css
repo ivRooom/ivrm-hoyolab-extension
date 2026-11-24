@@ -190,6 +190,63 @@ button.secondary {
   align-items: flex-start;
 }
 
+.summary-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.summary-refresh {
+  width: auto;
+  margin-top: 0;
+  padding: 3px 14px;
+  background: transparent;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  font-size: 12px;
+  box-shadow: none;
+}
+
+.summary-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 6px 0;
+}
+
+.summary-main {
+  flex: 1;
+}
+
+.summary-line {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+
+.summary-value {
+  font-weight: 700;
+}
+
+.summary-sub {
+  color: var(--fg-subtle);
+  font-size: 12px;
+}
+
+.meter {
+  height: 6px;
+  margin-top: 4px;
+  border-radius: 999px;
+  background: #1f3a4a;
+  overflow: hidden;
+}
+
+.meter-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--accent), var(--accent2));
+}
+
 .mascot {
   width: 56px;
   height: 56px;

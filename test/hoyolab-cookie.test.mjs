@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   buildHoyolabCookieString,
   describeExchangeResult,
+  extractLinkToken,
   isPairingTokenShape,
   selectHoyolabSessionCookies,
 } from "../src/lib/hoyolab-cookie.mjs";
@@ -82,4 +83,26 @@ test("exchange answers map to popup messages", () => {
   );
   assert.match(describeExchangeResult(422, null).message, /HoYoLAB/);
   assert.equal(describeExchangeResult(503, null).ok, false);
+});
+
+test("a link token is extracted only from a successful exchange", () => {
+  assert.equal(
+    extractLinkToken(200, { registered: true, linkToken: "uuid.sig" }),
+    "uuid.sig"
+  );
+  // Feature off server-side: no field, nothing to store.
+  assert.equal(extractLinkToken(200, { registered: true }), null);
+  assert.equal(
+    extractLinkToken(200, { registered: true, linkToken: "" }),
+    null
+  );
+  assert.equal(
+    extractLinkToken(200, { registered: true, linkToken: 42 }),
+    null
+  );
+  assert.equal(
+    extractLinkToken(401, { registered: true, linkToken: "uuid.sig" }),
+    null
+  );
+  assert.equal(extractLinkToken(200, null), null);
 });
