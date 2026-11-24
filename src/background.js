@@ -54,11 +54,18 @@ import {
   LINK_TOKEN_STORAGE_KEY,
   syncAuthReports,
 } from "./lib/auth-report.mjs";
+import {
+  LINK_SUMMARY_CACHE_KEY,
+  LINK_SUMMARY_REFRESH_MINUTES,
+  buildLinkSummaryCache,
+  fetchLinkSummary,
+} from "./lib/hoyolab-link.mjs";
 
 const CHECKIN_ALARM = "ivrm-auto-checkin";
 const CODES_ALARM = "ivrm-auto-codes";
 const ENDFIELD_ALARM = "ivrm-endfield-checkin";
 const RETRY_ALARM = "ivrm-auto-retry";
+const SUMMARY_ALARM = "ivrm-link-summary-refresh";
 const CODES_PERIOD_MINUTES = 180; // 3 hours, as designed
 const SKPORT_STATE_KEY = "skportState";
 
@@ -399,6 +406,43 @@ async function ensureAlarms() {
       periodInMinutes: CHECKIN_RETRY_INTERVAL_MINUTES,
     });
   }
+  const summary = await chrome.alarms.get(SUMMARY_ALARM);
+  if (!summary) {
+    chrome.alarms.create(SUMMARY_ALARM, {
+      delayInMinutes: 5,
+      periodInMinutes: LINK_SUMMARY_REFRESH_MINUTES,
+    });
+  }
+}
+
+// Portal summary cache refresh (#15): while Chrome runs, keep
+// the popup's status cache fresh so the values it opens to are
+// rarely older than ~30 minutes. Only members with a link token
+// take part. A failed fetch keeps the previous cache (and its
+// timestamp — the popup labels the values with it); a 401 means
+// the token was revoked, so the stale cache goes away and the
+// popup falls back to its re-link hint.
+async function refreshLinkSummaryCache() {
+  try {
+    const stored = await chrome.storage.local.get([LINK_TOKEN_STORAGE_KEY]);
+    const token = stored[LINK_TOKEN_STORAGE_KEY];
+    if (typeof token !== "string" || token === "") return;
+    const result = await fetchLinkSummary(
+      (url, init) => fetch(url, init),
+      token
+    );
+    if (result.kind === "ok") {
+      const cache = buildLinkSummaryCache(result, Date.now());
+      if (cache) {
+        await chrome.storage.local.set({ [LINK_SUMMARY_CACHE_KEY]: cache });
+      }
+    } else if (result.kind === "unauthorized") {
+      await chrome.storage.local.remove(LINK_SUMMARY_CACHE_KEY);
+    }
+  } catch {
+    // Best-effort freshness: the popup's own fetch on open is
+    // still the primary path.
+  }
 }
 
 // One cycle at a time: an alarm firing during a manual run (or the
@@ -450,6 +494,8 @@ chrome.alarms.onAlarm.addListener((alarm) => {
       await runner.runCheckinCycle({ retry: true });
       await skportRunner.runEndfieldCheckinCycle({ retry: true });
     });
+  } else if (alarm.name === SUMMARY_ALARM) {
+    void refreshLinkSummaryCache();
   }
 });
 
