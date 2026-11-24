@@ -61,7 +61,7 @@ export function createAutoRunner(deps) {
   async function load() {
     const data = await deps.loadData();
     return {
-      settings: normalizeAutoSettings(data.settings),
+      settings: normalizeAutoSettings(data.settings, data.gameSettings),
       records: data.records ?? {},
       state: { ...emptyState(), ...(data.state ?? {}) },
       log: Array.isArray(data.log) ? data.log : [],
