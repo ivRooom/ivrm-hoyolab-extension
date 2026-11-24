@@ -25,6 +25,12 @@ import {
   isGameAutomationEffective,
   migrateGameSettings,
 } from "./lib/game-settings.mjs";
+import {
+  AUTH_STATE_KEY,
+  anyAuthExpired,
+  isAuthExpired,
+  normalizeAuthState,
+} from "./lib/session-resilience.mjs";
 
 const SKPORT_STATE_KEY = "skportState";
 
@@ -318,6 +324,9 @@ const autoLog = document.getElementById("auto-log");
 const autoRunNow = document.getElementById("auto-run-now");
 const gameSettingsBox = document.getElementById("game-settings");
 const gameStatusBox = document.getElementById("game-status");
+const authBanner = document.getElementById("auth-banner");
+const authBannerHoyolab = document.getElementById("auth-banner-hoyolab");
+const authBannerSkport = document.getElementById("auth-banner-skport");
 
 const timeFormat = new Intl.DateTimeFormat("ja-JP", {
   timeZone: "Asia/Tokyo",
@@ -335,6 +344,7 @@ async function readAutoData() {
     AUTO_STORAGE_KEYS.log,
     GAME_SETTINGS_KEY,
     SKPORT_STATE_KEY,
+    AUTH_STATE_KEY,
   ]);
   const rawSettings = stored[AUTO_STORAGE_KEYS.settings];
   return {
@@ -346,6 +356,7 @@ async function readAutoData() {
     records: stored[AUTO_STORAGE_KEYS.records] ?? {},
     state: stored[AUTO_STORAGE_KEYS.state] ?? {},
     skportState: stored[SKPORT_STATE_KEY] ?? {},
+    authState: normalizeAuthState(stored[AUTH_STATE_KEY]),
     log: Array.isArray(stored[AUTO_STORAGE_KEYS.log])
       ? stored[AUTO_STORAGE_KEYS.log]
       : [],
@@ -507,7 +518,19 @@ function renderGameStatus(data) {
   gameStatusBox.replaceChildren(box);
 }
 
+// The login-expired banner (#10): shown while the shared auth
+// state says a provider's login is gone, one block per provider,
+// each with the button that opens the login page. It hides
+// itself once a run succeeds again, because the runners clear
+// the state.
+function renderAuthBanner(data) {
+  authBanner.hidden = !anyAuthExpired(data.authState);
+  authBannerHoyolab.hidden = !isAuthExpired(data.authState, "hoyolab");
+  authBannerSkport.hidden = !isAuthExpired(data.authState, "skport");
+}
+
 function renderAuto(data) {
+  renderAuthBanner(data);
   autoEnabled.checked = data.settings.enabled;
   renderGameSettings(data);
   renderGameStatus(data);
@@ -588,6 +611,7 @@ function renderAuto(data) {
 const LOG_KIND_LABELS = {
   checkin: "チェックイン",
   redeem: "コード交換",
+  auth: "ログイン",
   system: "お知らせ",
 };
 
