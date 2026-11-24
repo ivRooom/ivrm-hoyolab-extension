@@ -11,10 +11,20 @@ import {
   extractDisplayName,
 } from "./lib/auto-link.mjs";
 import {
-  fetchLinkSummary,
-  formatRelativeTime,
+  LINK_SUMMARY_CACHE_KEY,
   LINK_TOKEN_STORAGE_KEY,
+  buildLinkSummaryCache,
+  fetchLinkSummary,
+  formatSyncTime,
+  parseLinkSummaryCache,
 } from "./lib/hoyolab-link.mjs";
+import {
+  THEME_STORAGE_KEY,
+  buildHistoryEntries,
+  buildStatusRows,
+  nextTheme,
+  resolveTheme,
+} from "./lib/popup-view.mjs";
 import {
   AUTO_STORAGE_KEYS,
   countSuccessfulRedeems,
@@ -29,6 +39,7 @@ import {
   GAME_SETTINGS_KEY,
   isGameAutomationEffective,
   migrateGameSettings,
+  normalizeGameSettings,
 } from "./lib/game-settings.mjs";
 import {
   AUTH_STATE_KEY,
@@ -40,11 +51,58 @@ import {
 const SKPORT_STATE_KEY = "skportState";
 
 const sessionStatus = document.getElementById("session-status");
+const sessionDot = document.getElementById("session-dot");
 const tokenInput = document.getElementById("pairing-token");
 const linkButton = document.getElementById("link-button");
 const autoLinkButton = document.getElementById("auto-link-button");
 const result = document.getElementById("result");
 const linkState = document.getElementById("link-state");
+
+// ---------------------------------------------------------------
+// Theme (#15): the stored choice wins; before any choice, the OS
+// preference decides. The toggle in the header flips and stores.
+
+const themeToggle = document.getElementById("theme-toggle");
+const SUN_ICON =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>';
+const MOON_ICON =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>';
+
+function renderThemeIcon(theme) {
+  themeToggle.innerHTML = theme === "dark" ? SUN_ICON : MOON_ICON;
+}
+
+async function initTheme() {
+  let stored = null;
+  try {
+    const values = await chrome.storage.local.get([THEME_STORAGE_KEY]);
+    stored = values[THEME_STORAGE_KEY];
+  } catch {
+    stored = null;
+  }
+  const prefersLight =
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(prefers-color-scheme: light)").matches;
+  const theme = resolveTheme(stored, prefersLight);
+  document.documentElement.dataset.theme = theme;
+  renderThemeIcon(theme);
+}
+
+themeToggle.addEventListener("click", async () => {
+  const theme = nextTheme(document.documentElement.dataset.theme);
+  document.documentElement.dataset.theme = theme;
+  renderThemeIcon(theme);
+  try {
+    await chrome.storage.local.set({ [THEME_STORAGE_KEY]: theme });
+  } catch {
+    // The choice applies to this open even if storing failed.
+  }
+});
+
+void initTheme();
+
+document.getElementById("footer-version").textContent =
+  `v${chrome.runtime.getManifest().version}`;
 
 function setStatus(element, text, kind) {
   element.textContent = text;
@@ -63,8 +121,10 @@ async function refreshSessionStatus() {
   try {
     const cookie = await readSessionCookieString();
     if (cookie) {
-      setStatus(sessionStatus, "ログインを検出しました。", "ok");
+      sessionDot.className = "dot";
+      setStatus(sessionStatus, "HoYoLAB ログイン中", "ok");
     } else {
+      sessionDot.className = "dot ng";
       setStatus(
         sessionStatus,
         "ログインが検出できません。HoYoLAB にログインしてから開き直してください。",
@@ -72,6 +132,7 @@ async function refreshSessionStatus() {
       );
     }
   } catch {
+    sessionDot.className = "dot ng";
     setStatus(sessionStatus, "ログイン状態を確認できませんでした。", "ng");
   }
 }
@@ -83,6 +144,15 @@ async function refreshSessionStatus() {
 // visible here on the next open (link state + execution log).
 autoLinkButton.addEventListener("click", () => {
   void chrome.tabs.create({ url: AUTO_LINK_PAGE_URL });
+});
+
+// The pairing-code entry is the fallback (#14): collapsed behind
+// a quiet row until the member opens it.
+const codeToggle = document.getElementById("code-toggle");
+const codeBox = document.getElementById("code-box");
+codeToggle.addEventListener("click", () => {
+  codeBox.hidden = !codeBox.hidden;
+  codeToggle.classList.toggle("open", !codeBox.hidden);
 });
 
 linkButton.addEventListener("click", async () => {
@@ -215,6 +285,7 @@ refreshLinkState();
 const summarySection = document.getElementById("link-summary");
 const summaryBody = document.getElementById("link-summary-body");
 const summaryRefresh = document.getElementById("link-summary-refresh");
+const summarySync = document.getElementById("summary-sync");
 
 function summaryHint(text) {
   const hint = document.createElement("p");
@@ -223,47 +294,75 @@ function summaryHint(text) {
   return hint;
 }
 
-function renderSummaryRow(row) {
+// One status row in the v2 layout: icon, semantic dot, name, and
+// the metric with a per-game tinted hairline bar.
+function renderStatusRow(row) {
   const item = document.createElement("div");
-  item.className = "summary-row";
+  item.className = "game";
+
+  const head = document.createElement("div");
+  head.className = "game-head";
+  const name = document.createElement("div");
+  name.className = "game-name";
   const icon = document.createElement("img");
   icon.className = "game-icon";
   icon.src = row.icon;
   icon.alt = "";
-  item.append(icon);
+  icon.addEventListener("error", () => {
+    const dot = document.createElement("span");
+    dot.className = "game-dot";
+    dot.textContent = row.label.slice(0, 1);
+    icon.replaceWith(dot);
+  });
+  const dot = document.createElement("span");
+  dot.className = row.low ? "dot low" : "dot";
+  const label = document.createElement("span");
+  label.textContent = row.label;
+  name.append(icon, dot, label);
 
-  const main = document.createElement("div");
-  main.className = "summary-main";
-  const line = document.createElement("div");
-  line.className = "summary-line";
-  const name = document.createElement("span");
-  name.textContent = row.label;
-  const value = document.createElement("span");
-  value.className = "summary-value";
-  value.textContent = `${row.metricLabel} ${row.current} / ${row.max}`;
-  line.append(name, value);
-  main.append(line);
+  const value = document.createElement("div");
+  value.className = "game-value";
+  value.append(document.createTextNode(`${row.metricLabel} `));
+  const current = document.createElement("b");
+  current.textContent = String(row.current);
+  value.append(current, document.createTextNode(` / ${row.max}`));
+  head.append(name, value);
+  item.append(head);
 
   if (row.percent !== null) {
-    const meter = document.createElement("div");
-    meter.className = "meter";
-    const fill = document.createElement("div");
-    fill.className = "meter-fill";
+    const bar = document.createElement("div");
+    bar.className = "bar";
+    const fill = document.createElement("i");
+    fill.className = `t-${row.id}${row.low ? " low" : ""}`;
     fill.style.width = `${row.percent}%`;
-    meter.append(fill);
-    main.append(meter);
+    bar.append(fill);
+    item.append(bar);
   }
   if (row.explorationPercent !== null) {
     const sub = document.createElement("div");
     sub.className = "summary-sub";
     sub.textContent = `探索度 ${row.explorationPercent.toFixed(1)}%`;
-    main.append(sub);
+    item.append(sub);
   }
-  item.append(main);
   return item;
 }
 
-function renderLinkSummary(result) {
+function renderStatusRows(rows) {
+  if (rows.length === 0) {
+    summaryBody.replaceChildren(
+      summaryHint("まだ表示できるデータがありません。ポータルにデータが届くと、ここにも表示されます。")
+    );
+    return;
+  }
+  summaryBody.replaceChildren(...rows.map(renderStatusRow));
+}
+
+function renderSyncLine(at) {
+  const time = formatSyncTime(at);
+  summarySync.textContent = time ? `最終同期 ${time}` : "";
+}
+
+function renderLinkSummary(result, context) {
   summaryRefresh.hidden = false;
   if (result.kind === "unauthorized") {
     summaryBody.replaceChildren(
@@ -279,21 +378,13 @@ function renderLinkSummary(result) {
     );
     return;
   }
-  if (result.rows.length === 0) {
-    summaryBody.replaceChildren(
-      summaryHint("まだ表示できるデータがありません。ポータルにデータが届くと、ここにも表示されます。")
-    );
-    return;
-  }
-  const children = result.rows.map(renderSummaryRow);
-  const relative = formatRelativeTime(result.updatedAt, Date.now());
-  if (relative) {
-    const stamp = document.createElement("p");
-    stamp.className = "hint";
-    stamp.textContent = `最終更新: ${relative}`;
-    children.push(stamp);
-  }
-  summaryBody.replaceChildren(...children);
+  renderStatusRows(
+    buildStatusRows({
+      summaryRows: result.rows,
+      sanity: context.sanity,
+      gameSettings: context.gameSettings,
+    })
+  );
 }
 
 async function refreshLinkSummary() {
@@ -301,21 +392,70 @@ async function refreshLinkSummary() {
   try {
     stored = await chrome.storage.local.get([
       LINK_TOKEN_STORAGE_KEY,
+      LINK_SUMMARY_CACHE_KEY,
       "portalLinkedAt",
+      SKPORT_STATE_KEY,
+      GAME_SETTINGS_KEY,
     ]);
   } catch {
     stored = {};
   }
   const token = stored[LINK_TOKEN_STORAGE_KEY];
+  const context = {
+    sanity: stored[SKPORT_STATE_KEY]?.sanity ?? null,
+    gameSettings: normalizeGameSettings(stored[GAME_SETTINGS_KEY]),
+  };
   if (typeof token === "string" && token !== "") {
     summarySection.hidden = false;
     summaryRefresh.hidden = false;
-    summaryBody.replaceChildren(summaryHint("読み込んでいます…"));
-    renderLinkSummary(
-      await fetchLinkSummary((url, init) => fetch(url, init), token)
+    // Render the cache first (the background keeps it fresh on a
+    // ~30-minute alarm), then replace it with the live fetch.
+    const cache = parseLinkSummaryCache(stored[LINK_SUMMARY_CACHE_KEY]);
+    if (cache) {
+      renderStatusRows(
+        buildStatusRows({
+          summaryRows: cache.rows,
+          sanity: context.sanity,
+          gameSettings: context.gameSettings,
+        })
+      );
+      renderSyncLine(cache.at);
+    } else {
+      summaryBody.replaceChildren(summaryHint("読み込んでいます…"));
+    }
+    const result = await fetchLinkSummary(
+      (url, init) => fetch(url, init),
+      token
     );
+    if (result.kind === "ok") {
+      const fresh = buildLinkSummaryCache(result, Date.now());
+      if (fresh) {
+        try {
+          await chrome.storage.local.set({
+            [LINK_SUMMARY_CACHE_KEY]: fresh,
+          });
+        } catch {
+          // The live values are already on screen.
+        }
+        renderSyncLine(fresh.at);
+      }
+      renderLinkSummary(result, context);
+    } else if (result.kind === "unauthorized") {
+      try {
+        await chrome.storage.local.remove(LINK_SUMMARY_CACHE_KEY);
+      } catch {
+        // The hint below is what matters.
+      }
+      renderSyncLine(null);
+      renderLinkSummary(result, context);
+    } else if (!cache) {
+      renderLinkSummary(result, context);
+    }
+    // A failed fetch with a cache on screen keeps the cached rows
+    // and their 最終同期 label — that is what the label is for.
     return;
   }
+  renderSyncLine(null);
   if (typeof stored.portalLinkedAt === "number" && stored.portalLinkedAt > 0) {
     // Linked before link tokens existed (or while the portal
     // feature was off): one quiet line explaining how the section
@@ -355,6 +495,9 @@ const autoStatus = document.getElementById("auto-status");
 const autoCounts = document.getElementById("auto-counts");
 const autoLog = document.getElementById("auto-log");
 const autoRunNow = document.getElementById("auto-run-now");
+const historyButton = document.getElementById("history-button");
+const historyBox = document.getElementById("history-box");
+const historyList = document.getElementById("history-list");
 const gameSettingsBox = document.getElementById("game-settings");
 const gameStatusBox = document.getElementById("game-status");
 const authBanner = document.getElementById("auth-banner");
@@ -449,22 +592,34 @@ function renderGameSettings(data) {
     displayLabel.className = "mini-toggle";
     const displayInput = document.createElement("input");
     displayInput.type = "checkbox";
+    displayInput.className = "switch-input";
     displayInput.dataset.game = id;
     displayInput.dataset.switch = "display";
     displayInput.checked = data.gameSettings.display[id];
-    displayLabel.append(displayInput, document.createTextNode("表示"));
+    const displaySwitch = document.createElement("span");
+    displaySwitch.className = "switch";
+    displaySwitch.setAttribute("aria-hidden", "true");
+    displayLabel.append(
+      displayInput,
+      displaySwitch,
+      document.createTextNode("表示")
+    );
     row.append(displayLabel);
 
     const autoLabel = document.createElement("label");
     autoLabel.className = "mini-toggle";
     const autoInput = document.createElement("input");
     autoInput.type = "checkbox";
+    autoInput.className = "switch-input";
     autoInput.dataset.game = id;
     autoInput.dataset.switch = "automation";
     autoInput.checked = data.gameSettings.automation[id];
     autoInput.disabled =
       !data.settings.enabled || !data.gameSettings.display[id];
-    autoLabel.append(autoInput, document.createTextNode("自動"));
+    const autoSwitch = document.createElement("span");
+    autoSwitch.className = "switch";
+    autoSwitch.setAttribute("aria-hidden", "true");
+    autoLabel.append(autoInput, autoSwitch, document.createTextNode("自動"));
     row.append(autoLabel);
 
     return row;
@@ -535,13 +690,13 @@ function renderGameStatus(data) {
 
   const refresh = document.createElement("button");
   refresh.type = "button";
-  refresh.className = "secondary";
+  refresh.className = "btn-secondary";
   refresh.id = "sanity-refresh";
   refresh.textContent = "理性を更新";
   box.append(refresh);
 
   const link = document.createElement("a");
-  link.className = "link-button";
+  link.className = "text-link";
   link.href = "https://game.skport.com/endfield/sign-in";
   link.target = "_blank";
   link.rel = "noreferrer";
@@ -567,6 +722,7 @@ function renderAuto(data) {
   autoEnabled.checked = data.settings.enabled;
   renderGameSettings(data);
   renderGameStatus(data);
+  renderHistory(data);
 
   const riskControl = data.state.riskControl || data.skportState.riskControl;
   if (!data.settings.enabled) {
@@ -708,6 +864,54 @@ function renderLogEntry(entry) {
   }
   return item;
 }
+
+// Receipt history (#15): the check-in / redemption entries of
+// the run log as a readable list behind the history button. The
+// model (lib/popup-view) picks the entries; this only renders.
+function renderHistoryEntry(entry) {
+  const item = document.createElement("li");
+  const kind = document.createElement("span");
+  kind.className = "kind";
+  kind.textContent = LOG_KIND_LABELS[entry.kind] ?? "お知らせ";
+  item.append(kind);
+
+  const when = timeFormat.format(new Date(entry.at));
+  const game = entry.game ? GAME_INFO[entry.game]?.label ?? "" : "";
+  const code = entry.code ? ` ${entry.code}` : "";
+  item.append(document.createTextNode(` ${when} ${game}${code} — `));
+
+  const outcome = document.createElement("span");
+  outcome.textContent = describeAutoOutcome(entry.outcome);
+  if (LOG_OK_OUTCOMES.has(entry.outcome)) {
+    outcome.className = "ok";
+  } else if (LOG_NG_OUTCOMES.has(entry.outcome)) {
+    outcome.className = "ng";
+  } else {
+    outcome.className = "muted";
+  }
+  item.append(outcome);
+
+  if (entry.detail) {
+    item.append(document.createTextNode(`（${entry.detail}）`));
+  }
+  return item;
+}
+
+function renderHistory(data) {
+  const entries = buildHistoryEntries(data.log);
+  if (entries.length === 0) {
+    const item = document.createElement("li");
+    item.textContent = "まだ受け取り履歴がありません。";
+    historyList.replaceChildren(item);
+    return;
+  }
+  historyList.replaceChildren(...entries.map(renderHistoryEntry));
+}
+
+historyButton.addEventListener("click", () => {
+  historyBox.hidden = !historyBox.hidden;
+  historyButton.classList.toggle("open", !historyBox.hidden);
+});
 
 async function refreshAuto() {
   try {

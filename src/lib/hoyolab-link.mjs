@@ -17,6 +17,56 @@ export const LINK_SUMMARY_URL =
   "https://api.ivrm.jp/member/hoyolab/link-summary";
 export const LINK_TOKEN_STORAGE_KEY = "portalLinkToken";
 
+// Cache of the last successful summary fetch (#15): the popup
+// renders it instantly on open and labels it with the fetch time
+// ("最終同期 HH:MM"), and the background refreshes it on a
+// ~30-minute alarm while Chrome runs, so the numbers are rarely
+// stale. Only a successful (kind "ok") fetch is cached — failures
+// keep the previous cache and its timestamp, which is exactly
+// what makes the timestamp meaningful.
+export const LINK_SUMMARY_CACHE_KEY = "linkSummaryCache";
+export const LINK_SUMMARY_REFRESH_MINUTES = 30;
+
+export function buildLinkSummaryCache(result, at) {
+  if (!result || result.kind !== "ok" || typeof at !== "number") {
+    return null;
+  }
+  return { at, rows: result.rows, updatedAt: result.updatedAt ?? null };
+}
+
+// Defensive read of the stored cache: anything off-shape (older
+// builds, hand-edited storage) is treated as "no cache".
+export function parseLinkSummaryCache(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  if (typeof raw.at !== "number" || !(raw.at > 0)) return null;
+  if (!Array.isArray(raw.rows)) return null;
+  const rows = raw.rows.filter(
+    (row) =>
+      row &&
+      typeof row === "object" &&
+      typeof row.id === "string" &&
+      typeof row.current === "number" &&
+      typeof row.max === "number"
+  );
+  return {
+    at: raw.at,
+    rows,
+    updatedAt: typeof raw.updatedAt === "string" ? raw.updatedAt : null,
+  };
+}
+
+const syncTimeFormat = new Intl.DateTimeFormat("ja-JP", {
+  timeZone: "Asia/Tokyo",
+  hour: "2-digit",
+  minute: "2-digit",
+});
+
+// "14:05" in JST for a ms timestamp; null when unusable.
+export function formatSyncTime(atMs) {
+  if (typeof atMs !== "number" || !(atMs > 0)) return null;
+  return syncTimeFormat.format(new Date(atMs));
+}
+
 const SUMMARY_GAMES = [
   {
     id: "genshin",
