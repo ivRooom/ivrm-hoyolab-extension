@@ -12,9 +12,10 @@
 //   deps.hasSession() -> Promise<boolean>
 //     Whether a usable HoYoLAB session exists in this browser
 //     profile. Only the presence is checked; no value is read here.
-//   deps.loadData() -> Promise<{settings, records, state, log}>
+//   deps.loadData() -> Promise<{settings, records, state, log,
+//     authState}>
 //   deps.saveData(patch) -> Promise<void>
-//     Persists any of {records, state, log} that changed.
+//     Persists any of {records, state, log, authState} that changed.
 //
 // Safety rules baked in here:
 // - Nothing runs while the master switch is off, while a risk
@@ -32,6 +33,7 @@ import {
   AUTO_GAMES,
   HOYO_CODES_API_URL,
   REDEEM_GAP_MS,
+  TERMINAL_REDEEM_OUTCOMES,
   appendAutoLog,
   applyRedeemResult,
   classifyExchangeResponse,
@@ -45,6 +47,12 @@ import {
   parseHoyoCodesResponse,
   planRedeemAttempts,
 } from "./hoyolab-auto.mjs";
+import {
+  applyAuthSignal,
+  isAuthOutcome,
+  normalizeRetryState,
+  shouldAttemptRetry,
+} from "./session-resilience.mjs";
 
 function emptyState() {
   return {
@@ -52,6 +60,7 @@ function emptyState() {
     roles: {},
     riskControl: null,
     sessionMissing: false,
+    checkinRetry: { day: null, attempts: 0 },
     lastCheckinRunAt: null,
     lastCodeRunAt: null,
   };
@@ -65,7 +74,23 @@ export function createAutoRunner(deps) {
       records: data.records ?? {},
       state: { ...emptyState(), ...(data.state ?? {}) },
       log: Array.isArray(data.log) ? data.log : [],
+      authState: data.authState,
     };
+  }
+
+  // Folds an auth signal into the shared login state (#10):
+  // "expired" when a call (or the session presence check) says
+  // the HoYoLAB login is gone, "ok" when a call demonstrably
+  // authenticated. Callers include data.authState in their next
+  // saveData patch; background.js renders it as badge /
+  // notification and the popup as a banner.
+  function authSignal(data, signal) {
+    data.authState = applyAuthSignal(
+      data.authState,
+      "hoyolab",
+      signal,
+      deps.now().getTime()
+    ).state;
   }
 
   function logEntry(data, entry) {
@@ -86,16 +111,22 @@ export function createAutoRunner(deps) {
       await deps.saveData({ state: data.state });
     }
     if (!(await deps.hasSession())) {
+      authSignal(data, "expired");
       if (!data.state.sessionMissing) {
         data.state.sessionMissing = true;
-        logEntry(data, { kind: "system", outcome: "not_logged_in" });
-        await deps.saveData({ state: data.state, log: data.log });
+        logEntry(data, { kind: "auth", outcome: "not_logged_in" });
       }
+      await deps.saveData({
+        state: data.state,
+        log: data.log,
+        authState: data.authState,
+      });
       return "not_logged_in";
     }
     if (data.state.sessionMissing) {
       data.state.sessionMissing = false;
-      await deps.saveData({ state: data.state });
+      authSignal(data, "ok");
+      await deps.saveData({ state: data.state, authState: data.authState });
     }
     return null;
   }
@@ -110,13 +141,47 @@ export function createAutoRunner(deps) {
   // --------------------------------------------------------------
   // Daily check-in
 
-  async function runCheckinCycle({ force = false } = {}) {
+  async function runCheckinCycle({ force = false, retry = false } = {}) {
     const data = await load();
     const summary = { ran: false, results: {} };
     const stop = await gate(data, { force });
     if (stop) {
       summary.stopReason = stop;
       return summary;
+    }
+    if (retry) {
+      // Daytime retry (#10): the latched stops (risk control,
+      // missing session) already returned at the gate, so what is
+      // left is the daily budget. One attempt is spent only when
+      // at least one enabled game is still pending; once every
+      // game is done the cycle falls through and no-ops per game.
+      const dayKey = hoyolabDateKey(deps.now());
+      const pending = enabledGameIds(data.settings).filter((gameId) =>
+        isCheckinDue(data.state, gameId, deps.now())
+      );
+      if (pending.length > 0) {
+        data.state.checkinRetry = normalizeRetryState(
+          data.state.checkinRetry,
+          dayKey
+        );
+        if (
+          !shouldAttemptRetry({
+            retry: data.state.checkinRetry,
+            dayKey,
+            pendingCount: pending.length,
+            stopped: null,
+          })
+        ) {
+          summary.stopReason = "retry_limit";
+          await deps.saveData({ state: data.state });
+          return summary;
+        }
+        data.state.checkinRetry = {
+          day: dayKey,
+          attempts: data.state.checkinRetry.attempts + 1,
+        };
+        await deps.saveData({ state: data.state });
+      }
     }
     summary.ran = true;
     data.state.lastCheckinRunAt = deps.now().getTime();
@@ -144,13 +209,18 @@ export function createAutoRunner(deps) {
       if (detail !== "") entry.detail = detail;
       logEntry(data, entry);
       if (outcome === "success" || outcome === "already_done") {
+        authSignal(data, "ok");
         data.state.checkin[gameId] = {
           day: hoyolabDateKey(deps.now()),
           outcome,
           at: deps.now().getTime(),
         };
       }
-      await deps.saveData({ state: data.state, log: data.log });
+      await deps.saveData({
+        state: data.state,
+        log: data.log,
+        authState: data.authState,
+      });
       if (outcome === "risk_control") {
         latchRiskControl(data, gameId);
         await deps.saveData({ state: data.state });
@@ -158,13 +228,21 @@ export function createAutoRunner(deps) {
         break;
       }
       if (outcome === "not_logged_in") {
+        authSignal(data, "expired");
         data.state.sessionMissing = true;
-        await deps.saveData({ state: data.state });
+        await deps.saveData({
+          state: data.state,
+          authState: data.authState,
+        });
         summary.stopReason = "not_logged_in";
         break;
       }
     }
-    await deps.saveData({ state: data.state, log: data.log });
+    await deps.saveData({
+      state: data.state,
+      log: data.log,
+      authState: data.authState,
+    });
     return summary;
   }
 
@@ -181,6 +259,13 @@ export function createAutoRunner(deps) {
     const regions = await deps.fetchJson(
       `${ACCOUNT_REGIONS_URL}?game_biz=${game.gameBiz}`
     );
+    // An auth answer here means the session died server-side even
+    // though cookies are present; flag it so the cycle can stop
+    // as not_logged_in instead of mistaking it for "no role".
+    if (isAuthOutcome(classifySignResponse(regions.status, regions.body))) {
+      data.authExpired = true;
+      return null;
+    }
     const regionList = regions.body?.data?.list;
     if (regions.status !== 200 || !Array.isArray(regionList)) {
       throw new Error("regions lookup failed");
@@ -190,6 +275,10 @@ export function createAutoRunner(deps) {
       const roles = await deps.fetchJson(
         `${ACCOUNT_ROLES_URL}?game_biz=${game.gameBiz}&region=${entry.region}`
       );
+      if (isAuthOutcome(classifySignResponse(roles.status, roles.body))) {
+        data.authExpired = true;
+        return null;
+      }
       const role = roles.body?.data?.list?.[0];
       if (role?.game_uid) {
         const found = {
@@ -297,6 +386,22 @@ export function createAutoRunner(deps) {
         role = null;
         gameSummary.roleLookupFailed = true;
       }
+      if (data.authExpired) {
+        authSignal(data, "expired");
+        data.state.sessionMissing = true;
+        logEntry(data, {
+          kind: "auth",
+          game: gameId,
+          outcome: "not_logged_in",
+        });
+        await deps.saveData({
+          state: data.state,
+          log: data.log,
+          authState: data.authState,
+        });
+        summary.stopReason = "not_logged_in";
+        return summary;
+      }
       if (!role) {
         logEntry(data, { kind: "redeem", game: gameId, outcome: "no_role" });
         await deps.saveData({ log: data.log });
@@ -346,6 +451,7 @@ export function createAutoRunner(deps) {
           return summary;
         }
         if (outcome === "not_logged_in") {
+          authSignal(data, "expired");
           data.state.sessionMissing = true;
           const stopEntry = {
             kind: "redeem",
@@ -355,7 +461,11 @@ export function createAutoRunner(deps) {
           };
           if (detail !== "") stopEntry.detail = detail;
           logEntry(data, stopEntry);
-          await deps.saveData({ state: data.state, log: data.log });
+          await deps.saveData({
+            state: data.state,
+            log: data.log,
+            authState: data.authState,
+          });
           summary.stopReason = "not_logged_in";
           return summary;
         }
@@ -363,6 +473,11 @@ export function createAutoRunner(deps) {
         // retried on the next cycle, and the rest of this game is
         // postponed rather than hammering a busy API.
         const recorded = outcome === "rate_limited" ? "failed" : outcome;
+        // A business answer (claimed, already used, expired, ...)
+        // proves the session authenticated: clear any expiry.
+        if (TERMINAL_REDEEM_OUTCOMES.has(recorded) || recorded === "success") {
+          authSignal(data, "ok");
+        }
         data.records = applyRedeemResult(
           data.records,
           gameId,
@@ -379,7 +494,11 @@ export function createAutoRunner(deps) {
         };
         if (detail !== "") attemptEntry.detail = detail;
         logEntry(data, attemptEntry);
-        await deps.saveData({ records: data.records, log: data.log });
+        await deps.saveData({
+          records: data.records,
+          log: data.log,
+          authState: data.authState,
+        });
         if (outcome === "rate_limited") break;
       }
     }

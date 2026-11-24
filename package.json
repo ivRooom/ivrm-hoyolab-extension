@@ -1,1 +1,1 @@
-{"description":"ivRooom HoYoLAB 連携ブラウザ拡張","name":"ivrm-hoyolab-extension","private":true,"scripts":{"test":"node --test test/*.test.mjs"},"type":"module","version":"0.3.0"}
+{"description":"ivRooom HoYoLAB 連携ブラウザ拡張","name":"ivrm-hoyolab-extension","private":true,"scripts":{"test":"node --test test/*.test.mjs"},"type":"module","version":"0.3.1"}
