@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
+  DEFAULT_POPUP_VIEW,
   HISTORY_LIMIT,
+  POPUP_VIEWS,
   STATUS_VISIBILITY_GAMES,
   STATUS_VISIBILITY_KEY,
   THEME_STORAGE_KEY,
@@ -13,7 +16,9 @@ import {
   isStatusRowVisible,
   nextCollapsibleOpen,
   nextTheme,
+  normalizePopupView,
   normalizeStatusVisibility,
+  popupViewState,
   resolveTheme,
 } from "../src/lib/popup-view.mjs";
 import {
@@ -220,6 +225,87 @@ test("status visibility: storage round-trip keeps the choices", () => {
     rows.map((row) => row.id),
     ["starrail"]
   );
+});
+
+test("views: main is the default, settings hides main (settings layout)", () => {
+  assert.deepEqual(POPUP_VIEWS, ["main", "settings"]);
+  assert.equal(DEFAULT_POPUP_VIEW, "main");
+  assert.equal(normalizePopupView("main"), "main");
+  assert.equal(normalizePopupView("settings"), "settings");
+  // Unknown names fall back to main — a corrupt caller can never
+  // strand the member on a blank popup.
+  assert.equal(normalizePopupView("bogus"), "main");
+  assert.equal(normalizePopupView(null), "main");
+  assert.equal(normalizePopupView(undefined), "main");
+  assert.deepEqual(popupViewState("main"), {
+    view: "main",
+    mainHidden: false,
+    settingsHidden: true,
+    settingsAriaExpanded: "false",
+  });
+  assert.deepEqual(popupViewState("settings"), {
+    view: "settings",
+    mainHidden: true,
+    settingsHidden: false,
+    settingsAriaExpanded: "true",
+  });
+});
+
+test("views: switching there and back restores the main view", () => {
+  // The round trip the buttons drive: open on main, 設定 shows
+  // the settings view, 戻る brings main back untouched.
+  let state = popupViewState("main");
+  assert.equal(state.mainHidden, false);
+  state = popupViewState("settings");
+  assert.equal(state.settingsHidden, false);
+  assert.equal(state.mainHidden, true);
+  state = popupViewState("main");
+  assert.deepEqual(state, popupViewState(DEFAULT_POPUP_VIEW));
+});
+
+test("views: settings controls live in the settings view, not main", async () => {
+  const html = await readFile(
+    new URL("../src/popup.html", import.meta.url),
+    "utf8"
+  );
+  const header = html.slice(0, html.indexOf('id="main-view"'));
+  const main = html.slice(
+    html.indexOf('id="main-view"'),
+    html.indexOf('id="settings-view"')
+  );
+  const settings = html.slice(
+    html.indexOf('id="settings-view"'),
+    html.indexOf("<footer")
+  );
+  // The 設定 button sits in the shared header.
+  assert.ok(header.includes('id="settings-button"'));
+  // Everything set-once moved: the theme control, the status
+  // visibility switches (#25), the automation master switch and
+  // the per-game switches (#6).
+  for (const id of [
+    "theme-toggle",
+    "status-visibility",
+    "auto-enabled",
+    "game-settings",
+    "settings-back",
+  ]) {
+    assert.ok(settings.includes(`id="${id}"`), `${id} in settings view`);
+    assert.ok(!main.includes(`id="${id}"`), `${id} not in main view`);
+  }
+  // Status and actions stayed: the status rows, the pairing
+  // section, the run-now button, and the receipt history (#26).
+  for (const id of [
+    "link-summary-body",
+    "auto-link-button",
+    "code-toggle",
+    "auto-run-now",
+    "history-button",
+    "auto-status",
+    "game-status",
+  ]) {
+    assert.ok(main.includes(`id="${id}"`), `${id} in main view`);
+    assert.ok(!settings.includes(`id="${id}"`), `${id} not in settings`);
+  }
 });
 
 test("collapsible: taps alternate expand → collapse → expand (#26)", () => {

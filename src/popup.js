@@ -30,6 +30,7 @@ import {
   nextCollapsibleOpen,
   nextTheme,
   normalizeStatusVisibility,
+  popupViewState,
   resolveTheme,
 } from "./lib/popup-view.mjs";
 import {
@@ -66,10 +67,47 @@ const result = document.getElementById("result");
 const linkState = document.getElementById("link-state");
 
 // ---------------------------------------------------------------
+// Views: the popup opens on the main view (status, actions, run
+// state, history). The header's 設定 button switches to the
+// settings view, which gathers everything the member sets once —
+// the theme, the status row visibility (#25), and the automation
+// switches (#6) — and its 戻る button switches back. The view is
+// not persisted: every open starts on main. The derivation lives
+// in the popup-view model; this wiring only applies it.
+
+const mainView = document.getElementById("main-view");
+const settingsView = document.getElementById("settings-view");
+const settingsButton = document.getElementById("settings-button");
+const settingsBack = document.getElementById("settings-back");
+let currentView = "main";
+
+function renderView() {
+  const state = popupViewState(currentView);
+  mainView.hidden = state.mainHidden;
+  settingsView.hidden = state.settingsHidden;
+  settingsButton.setAttribute("aria-expanded", state.settingsAriaExpanded);
+  currentView = state.view;
+}
+
+settingsButton.addEventListener("click", () => {
+  currentView = "settings";
+  renderView();
+});
+
+settingsBack.addEventListener("click", () => {
+  currentView = "main";
+  renderView();
+});
+
+renderView();
+
+// ---------------------------------------------------------------
 // Theme (#15): the stored choice wins; before any choice, the OS
-// preference decides. The toggle in the header flips and stores.
+// preference decides. The toggle lives in the settings view and
+// flips and stores.
 
 const themeToggle = document.getElementById("theme-toggle");
+const themeState = document.getElementById("theme-state");
 const SUN_ICON =
   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>';
 const MOON_ICON =
@@ -77,6 +115,7 @@ const MOON_ICON =
 
 function renderThemeIcon(theme) {
   themeToggle.innerHTML = theme === "dark" ? SUN_ICON : MOON_ICON;
+  themeState.textContent = theme === "dark" ? "ダーク" : "ライト";
 }
 
 async function initTheme() {
@@ -507,12 +546,13 @@ async function refreshLinkSummary() {
 summaryRefresh.addEventListener("click", refreshLinkSummary);
 
 // Status row visibility (#25): one switch per status-capable
-// game, always listed — even for games with no data yet — so the
-// member can pre-configure. The switches only restyle this
-// section: they are re-read with every summary render, and they
-// never touch the fetch, the automation, or the history. (The
-// per-game "表示" switch in the automation section below is a
-// different, stronger setting: it also gates the automation.)
+// game, always listed in the settings view — even for games with
+// no data yet — so the member can pre-configure. The switches
+// only restyle the status section: they are re-read with every
+// summary render, and they never touch the fetch, the automation,
+// or the history. (The per-game "表示" switch in the automation
+// settings is a different, stronger setting: it also gates the
+// automation.)
 let statusVisibility = normalizeStatusVisibility(null);
 
 function renderStatusVisibility(visibility) {

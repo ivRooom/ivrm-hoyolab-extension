@@ -13,168 +13,216 @@
           <div class="subtitle">HoYoLAB Link</div>
         </div>
         <button
-          class="theme-toggle"
-          id="theme-toggle"
+          class="settings-button"
+          id="settings-button"
           type="button"
-          title="テーマ切り替え"
-          aria-label="テーマ切り替え"
-        ></button>
+          aria-expanded="false"
+          aria-controls="settings-view"
+        >
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <circle cx="12" cy="12" r="3" />
+            <path
+              d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"
+            />
+          </svg>
+          <span>設定</span>
+        </button>
       </header>
       <div class="divider"></div>
 
-      <section id="auth-banner" class="auth-banner" hidden>
-        <div class="section-label">ログインが切れています</div>
-        <div id="auth-banner-hoyolab" hidden>
-          <p class="hint">
-            HoYoLAB
-            のログインが切れているため、自動チェックインをお休みしています。ログインし直すと自動で再開します。
-          </p>
+      <div id="main-view">
+        <section id="auth-banner" class="auth-banner" hidden>
+          <div class="section-label">ログインが切れています</div>
+          <div id="auth-banner-hoyolab" hidden>
+            <p class="hint">
+              HoYoLAB
+              のログインが切れているため、自動チェックインをお休みしています。ログインし直すと自動で再開します。
+            </p>
+            <a
+              class="text-link"
+              href="https://www.hoyolab.com/"
+              target="_blank"
+              rel="noreferrer"
+              >HoYoLAB でログインし直す</a
+            >
+          </div>
+          <div id="auth-banner-skport" hidden>
+            <p class="hint">
+              Skport
+              のログインが切れているため、エンドフィールドの自動チェックインをお休みしています。ログインし直すと自動で再開します。
+            </p>
+            <a
+              class="text-link"
+              href="https://game.skport.com/"
+              target="_blank"
+              rel="noreferrer"
+              >Skport でログインし直す</a
+            >
+          </div>
+        </section>
+
+        <section id="link-summary" hidden>
+          <div class="section-head">
+            <span class="section-label">ステータス</span>
+            <button id="link-summary-refresh" type="button" class="text-link">
+              更新
+            </button>
+          </div>
+          <div id="link-summary-body">
+            <p class="hint">読み込んでいます…</p>
+          </div>
+          <p id="summary-sync" class="sync-line"></p>
+        </section>
+
+        <div class="login-line">
+          <div class="login-state">
+            <span class="dot" id="session-dot"></span>
+            <span id="session-status">確認しています…</span>
+          </div>
           <a
             class="text-link"
             href="https://www.hoyolab.com/"
             target="_blank"
             rel="noreferrer"
-            >HoYoLAB でログインし直す</a
+            >HoYoLAB を開く</a
           >
         </div>
-        <div id="auth-banner-skport" hidden>
-          <p class="hint">
-            Skport
-            のログインが切れているため、エンドフィールドの自動チェックインをお休みしています。ログインし直すと自動で再開します。
-          </p>
-          <a
-            class="text-link"
-            href="https://game.skport.com/"
-            target="_blank"
-            rel="noreferrer"
-            >Skport でログインし直す</a
-          >
-        </div>
-      </section>
 
-      <section id="link-summary" hidden>
-        <div class="section-head">
-          <span class="section-label">ステータス</span>
-          <button id="link-summary-refresh" type="button" class="text-link">
-            更新
+        <section>
+          <div class="section-label">ポータル連携</div>
+          <button id="auto-link-button" type="button" class="btn-primary">
+            ポータルと自動連携
           </button>
+          <p class="btn-note">
+            ポータルにログインしていれば、コード入力なしで連携できます
+          </p>
+          <p id="link-state" class="status"></p>
+          <button
+            id="code-toggle"
+            type="button"
+            class="fallback"
+            aria-expanded="false"
+            aria-controls="code-box"
+          >
+            <span>ペアリングコードで連携</span><span class="chev">›</span>
+          </button>
+          <div id="code-box" hidden>
+            <p class="hint">
+              ポータルのプロフィール（HoYoLAB連携）で「ペアリングコードを表示」を押し、出てきたコードを貼ってください。コードは10分で期限切れになります。
+            </p>
+            <textarea
+              id="pairing-token"
+              rows="3"
+              spellcheck="false"
+              placeholder="ペアリングコードを貼り付け"
+            ></textarea>
+            <button id="link-button" type="button" class="btn-secondary">
+              ペアリングコードで連携する
+            </button>
+          </div>
+          <p id="result" class="status" role="status"></p>
+        </section>
+
+        <section>
+          <div class="section-label">自動チェックイン・コード交換</div>
+          <p id="auto-status" class="status">状態を読み込んでいます…</p>
+          <p id="auto-counts" class="hint"></p>
+          <div id="game-status"></div>
+          <button id="auto-run-now" type="button" class="btn-secondary">
+            今すぐ実行
+          </button>
+          <button
+            id="history-button"
+            type="button"
+            class="fallback"
+            aria-expanded="false"
+            aria-controls="history-box"
+          >
+            <span id="history-button-label">受け取り履歴を表示</span
+            ><span class="chev">›</span>
+          </button>
+          <div id="history-box" hidden>
+            <ul id="history-list" class="history"></ul>
+          </div>
+          <ul id="auto-log" class="log"></ul>
+        </section>
+
+        <p class="fineprint">
+          ペアリング連携では、HoYoLAB のセッション Cookie （ltuid_v2 /
+          ltoken_v2 / ltmid_v2）を連携の操作をしたときだけ api.ivrm.jp
+          へ送ります。自動連携では、ポータルの連携ページで本人がボタンを押したときに発行される短時間のトークンを、この拡張がページから受け取って同じ連携を行います（コードの目視コピーが不要になるだけで、送るものは変わりません）。連携時にポータルが読み取り専用のトークンを返した場合は、そのトークンをこのブラウザに保存し、現在の状況（樹脂・開拓力など）の取得にだけ使います。連携し直すかポータルで連携を解除すると、前のトークンは使えなくなります。自動チェックイン・コード交換では
+          HoYoLAB の Cookie
+          の値を読んだり保存したりせず、ブラウザのログイン状態のまま公式
+          API（hoyolab.com / hoyoverse.com）とコード一覧の hoyo-codes
+          へだけ通信します。エンドフィールドでは、Skport のログイン
+          Cookie（ACCOUNT_TOKEN）を読み取り、公式の Gryphline / Skport
+          API へだけ送ってセッション資格情報に交換します。交換した資格情報や
+          Cookie の値は保存しません。自動機能の設定・交換履歴・実行ログは、このブラウザの中にだけ保存されます。
+        </p>
+      </div>
+
+      <div id="settings-view" hidden>
+        <div class="settings-head">
+          <button id="settings-back" type="button" class="back-button">
+            <span class="chev">‹</span><span>戻る</span>
+          </button>
+          <span class="section-label">設定</span>
         </div>
-        <div id="link-summary-body">
-          <p class="hint">読み込んでいます…</p>
-        </div>
-        <p id="summary-sync" class="sync-line"></p>
-        <div class="status-settings">
+
+        <section>
+          <div class="toggle-row">
+            <span class="tname">テーマ</span>
+            <span class="theme-control">
+              <span id="theme-state" class="theme-state"></span>
+              <button
+                class="theme-toggle"
+                id="theme-toggle"
+                type="button"
+                title="テーマ切り替え"
+                aria-label="テーマ切り替え"
+              ></button>
+            </span>
+          </div>
+        </section>
+
+        <section>
           <div class="section-label">ステータス表示</div>
           <div id="status-visibility"></div>
           <p class="hint">
             ステータス欄に出すゲームを選べます。表示だけの設定で、自動チェックイン・コード交換には影響しません。
           </p>
-        </div>
-      </section>
+        </section>
 
-      <div class="login-line">
-        <div class="login-state">
-          <span class="dot" id="session-dot"></span>
-          <span id="session-status">確認しています…</span>
-        </div>
-        <a
-          class="text-link"
-          href="https://www.hoyolab.com/"
-          target="_blank"
-          rel="noreferrer"
-          >HoYoLAB を開く</a
-        >
-      </div>
-
-      <section>
-        <div class="section-label">ポータル連携</div>
-        <button id="auto-link-button" type="button" class="btn-primary">
-          ポータルと自動連携
-        </button>
-        <p class="btn-note">
-          ポータルにログインしていれば、コード入力なしで連携できます
-        </p>
-        <p id="link-state" class="status"></p>
-        <button
-          id="code-toggle"
-          type="button"
-          class="fallback"
-          aria-expanded="false"
-          aria-controls="code-box"
-        >
-          <span>ペアリングコードで連携</span><span class="chev">›</span>
-        </button>
-        <div id="code-box" hidden>
+        <section>
+          <div class="section-label">自動チェックイン・コード交換</div>
           <p class="hint">
-            ポータルのプロフィール（HoYoLAB連携）で「ペアリングコードを表示」を押し、出てきたコードを貼ってください。コードは10分で期限切れになります。
+            このブラウザの HoYoLAB / Skport
+            ログインを使って、デイリーチェックインの受取と、HoYoLAB
+            の新しいギフトコードの交換（3時間ごと）を自動で行います。いずれも任意設定で、既定はオフです。
           </p>
-          <textarea
-            id="pairing-token"
-            rows="3"
-            spellcheck="false"
-            placeholder="ペアリングコードを貼り付け"
-          ></textarea>
-          <button id="link-button" type="button" class="btn-secondary">
-            ペアリングコードで連携する
-          </button>
-        </div>
-        <p id="result" class="status" role="status"></p>
-      </section>
-
-      <section>
-        <div class="section-label">自動チェックイン・コード交換</div>
-        <p class="hint">
-          このブラウザの HoYoLAB / Skport
-          ログインを使って、デイリーチェックインの受取と、HoYoLAB
-          の新しいギフトコードの交換（3時間ごと）を自動で行います。いずれも任意設定で、既定はオフです。
-        </p>
-        <label class="toggle-row master-toggle">
-          <span class="tname">自動チェックイン・コード交換を使う</span>
-          <input id="auto-enabled" type="checkbox" class="switch-input" />
-          <span class="switch" aria-hidden="true"></span>
-        </label>
-        <p class="hint">
-          ゲームごとに「表示」と「自動」のオン／オフを切り替えられます。表示をオフにしたゲームは、この画面にも自動処理にも出てきません。
-        </p>
-        <div id="game-settings"></div>
-        <p class="hint">
-          報酬は各ゲーム内のメールに届きます。チェックインは HoYoLAB
-          が毎日 01:05、エンドフィールドが毎日 05:05、コード確認は3時間ごとです。
-        </p>
-        <p id="auto-status" class="status">状態を読み込んでいます…</p>
-        <p id="auto-counts" class="hint"></p>
-        <div id="game-status"></div>
-        <button id="auto-run-now" type="button" class="btn-secondary">
-          今すぐ実行
-        </button>
-        <button
-          id="history-button"
-          type="button"
-          class="fallback"
-          aria-expanded="false"
-          aria-controls="history-box"
-        >
-          <span id="history-button-label">受け取り履歴を表示</span
-          ><span class="chev">›</span>
-        </button>
-        <div id="history-box" hidden>
-          <ul id="history-list" class="history"></ul>
-        </div>
-        <ul id="auto-log" class="log"></ul>
-      </section>
-
-      <p class="fineprint">
-        ペアリング連携では、HoYoLAB のセッション Cookie （ltuid_v2 /
-        ltoken_v2 / ltmid_v2）を連携の操作をしたときだけ api.ivrm.jp
-        へ送ります。自動連携では、ポータルの連携ページで本人がボタンを押したときに発行される短時間のトークンを、この拡張がページから受け取って同じ連携を行います（コードの目視コピーが不要になるだけで、送るものは変わりません）。連携時にポータルが読み取り専用のトークンを返した場合は、そのトークンをこのブラウザに保存し、現在の状況（樹脂・開拓力など）の取得にだけ使います。連携し直すかポータルで連携を解除すると、前のトークンは使えなくなります。自動チェックイン・コード交換では
-        HoYoLAB の Cookie
-        の値を読んだり保存したりせず、ブラウザのログイン状態のまま公式
-        API（hoyolab.com / hoyoverse.com）とコード一覧の hoyo-codes
-        へだけ通信します。エンドフィールドでは、Skport のログイン
-        Cookie（ACCOUNT_TOKEN）を読み取り、公式の Gryphline / Skport
-        API へだけ送ってセッション資格情報に交換します。交換した資格情報や
-        Cookie の値は保存しません。自動機能の設定・交換履歴・実行ログは、このブラウザの中にだけ保存されます。
-      </p>
+          <label class="toggle-row master-toggle">
+            <span class="tname">自動チェックイン・コード交換を使う</span>
+            <input id="auto-enabled" type="checkbox" class="switch-input" />
+            <span class="switch" aria-hidden="true"></span>
+          </label>
+          <p class="hint">
+            ゲームごとに「表示」と「自動」のオン／オフを切り替えられます。表示をオフにしたゲームは、この画面にも自動処理にも出てきません。
+          </p>
+          <div id="game-settings"></div>
+          <p class="hint">
+            報酬は各ゲーム内のメールに届きます。チェックインは HoYoLAB
+            が毎日 01:05、エンドフィールドが毎日 05:05、コード確認は3時間ごとです。
+          </p>
+        </section>
+      </div>
 
       <footer>
         <span>ivRooom HoYoLAB Link</span>

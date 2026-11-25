@@ -31,6 +31,38 @@ export function nextTheme(current) {
 }
 
 // ----------------------------------------------------------------
+// Popup views (settings layout)
+//
+// The popup has two views: "main" (status rows, the link actions,
+// the run state, the receipt history) and "settings" (everything
+// the member sets once and rarely touches: the theme, the status
+// row visibility switches, and the automation switches). The
+// header's 設定 button switches to the settings view and its
+// 戻る button switches back. The view is deliberately not
+// persisted — every popup open starts on main — so this model
+// only derives, from the current view name, which container is
+// hidden and what the settings button reports to assistive tech.
+// Unknown names fall back to main, the safe default.
+
+export const POPUP_VIEWS = ["main", "settings"];
+export const DEFAULT_POPUP_VIEW = "main";
+
+export function normalizePopupView(name) {
+  return POPUP_VIEWS.includes(name) ? name : DEFAULT_POPUP_VIEW;
+}
+
+export function popupViewState(name) {
+  const view = normalizePopupView(name);
+  const onSettings = view === "settings";
+  return {
+    view,
+    mainHidden: onSettings,
+    settingsHidden: !onSettings,
+    settingsAriaExpanded: onSettings ? "true" : "false",
+  };
+}
+
+// ----------------------------------------------------------------
 // Status row visibility (#25)
 //
 // A display-only preference for the status section: one switch
