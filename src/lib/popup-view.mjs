@@ -31,6 +31,76 @@ export function nextTheme(current) {
 }
 
 // ----------------------------------------------------------------
+// Popup views (settings layout)
+//
+// The popup has two views: "main" (status rows, the link actions,
+// the run state, the receipt history) and "settings" (everything
+// the member sets once and rarely touches: the theme, the status
+// row visibility switches, and the automation switches). The
+// header's 設定 button switches to the settings view and its
+// 戻る button switches back. The view is deliberately not
+// persisted — every popup open starts on main — so this model
+// only derives, from the current view name, which container is
+// hidden and what the settings button reports to assistive tech.
+// Unknown names fall back to main, the safe default.
+
+export const POPUP_VIEWS = ["main", "settings"];
+export const DEFAULT_POPUP_VIEW = "main";
+
+export function normalizePopupView(name) {
+  return POPUP_VIEWS.includes(name) ? name : DEFAULT_POPUP_VIEW;
+}
+
+export function popupViewState(name) {
+  const view = normalizePopupView(name);
+  const onSettings = view === "settings";
+  return {
+    view,
+    mainHidden: onSettings,
+    settingsHidden: !onSettings,
+    settingsAriaExpanded: onSettings ? "true" : "false",
+  };
+}
+
+// ----------------------------------------------------------------
+// Status row visibility (#25)
+//
+// A display-only preference for the status section: one switch
+// per status-capable game, stored under STATUS_VISIBILITY_KEY.
+// It is deliberately separate from the per-game settings (#6):
+// that "display" switch also gates the automation (the effective
+// state is display && automation), while this one only decides
+// whether the game's row is drawn here. It never affects
+// fetching, check-in, redemption, or the receipt history.
+//
+// A row is drawn only when both switches allow it — a game hidden
+// in the #6 settings stays hidden here too. The default is all
+// on, so existing users see no change.
+
+export const STATUS_VISIBILITY_KEY = "statusVisibility";
+export const STATUS_VISIBILITY_GAMES = ["genshin", "starrail", "endfield"];
+
+export function defaultStatusVisibility() {
+  const visibility = {};
+  for (const id of STATUS_VISIBILITY_GAMES) visibility[id] = true;
+  return visibility;
+}
+
+export function normalizeStatusVisibility(raw) {
+  const visibility = defaultStatusVisibility();
+  if (raw && typeof raw === "object") {
+    for (const id of STATUS_VISIBILITY_GAMES) {
+      if (typeof raw[id] === "boolean") visibility[id] = raw[id];
+    }
+  }
+  return visibility;
+}
+
+export function isStatusRowVisible(visibility, gameId) {
+  return normalizeStatusVisibility(visibility)[gameId] !== false;
+}
+
+// ----------------------------------------------------------------
 // Status rows
 //
 // Rows come only from data that actually exists — the same rule
@@ -41,9 +111,10 @@ export function nextTheme(current) {
 // and HoYoLAB's note for ZZZ is not fetched), so no ZZZ row is
 // fabricated for the mock's sake.
 //
-// A game the member hid in the per-game settings (display off)
-// gets no row. A row is "low" below half charge: the dot turns
-// amber and the bar dims, per the mock.
+// A game the member hid — in the per-game settings (display off)
+// or in the status visibility switches above (#25) — gets no row.
+// A row is "low" below half charge: the dot turns amber and the
+// bar dims, per the mock.
 
 export const STATUS_ROW_LABELS = {
   genshin: "原神",
@@ -58,9 +129,15 @@ export function isLowPercent(percent) {
   return typeof percent === "number" && percent < LOW_PERCENT;
 }
 
-export function buildStatusRows({ summaryRows, sanity, gameSettings } = {}) {
+export function buildStatusRows({
+  summaryRows,
+  sanity,
+  gameSettings,
+  statusVisibility,
+} = {}) {
   const display = gameSettings?.display ?? {};
-  const visible = (id) => display[id] !== false;
+  const visibility = normalizeStatusVisibility(statusVisibility);
+  const visible = (id) => display[id] !== false && visibility[id] !== false;
   const rows = [];
   for (const row of Array.isArray(summaryRows) ? summaryRows : []) {
     if (!visible(row.id)) continue;
@@ -144,4 +221,36 @@ export function buildHistoryEntries(log, limit = HISTORY_LIMIT) {
           ? entry.detail
           : null,
     }));
+}
+
+// ----------------------------------------------------------------
+// Collapsible sections (#26)
+//
+// The pairing-code box and the receipt history open and close
+// through one shared state machine. The open flag is owned by
+// the wiring in popup.js and every visible state of the toggle —
+// the box, the chevron class, aria-expanded, and (for the
+// history) the button label — is derived from it here, never
+// read back from the DOM, so a tap can only ever flip the
+// section and the states cannot drift apart. The flip-flop is
+// pinned by the test suite (expand → collapse → expand).
+
+export function nextCollapsibleOpen(open) {
+  return open !== true;
+}
+
+export function collapsibleView(open) {
+  const isOpen = open === true;
+  return {
+    boxHidden: !isOpen,
+    openClass: isOpen,
+    ariaExpanded: isOpen ? "true" : "false",
+  };
+}
+
+export const HISTORY_LABEL_OPEN = "受け取り履歴を閉じる";
+export const HISTORY_LABEL_CLOSED = "受け取り履歴を表示";
+
+export function historyToggleLabel(open) {
+  return open === true ? HISTORY_LABEL_OPEN : HISTORY_LABEL_CLOSED;
 }

@@ -1,12 +1,24 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
+  DEFAULT_POPUP_VIEW,
   HISTORY_LIMIT,
+  POPUP_VIEWS,
+  STATUS_VISIBILITY_GAMES,
+  STATUS_VISIBILITY_KEY,
   THEME_STORAGE_KEY,
   buildHistoryEntries,
   buildStatusRows,
+  collapsibleView,
+  historyToggleLabel,
   isLowPercent,
+  isStatusRowVisible,
+  nextCollapsibleOpen,
   nextTheme,
+  normalizePopupView,
+  normalizeStatusVisibility,
+  popupViewState,
   resolveTheme,
 } from "../src/lib/popup-view.mjs";
 import {
@@ -118,6 +130,206 @@ test("status rows: hidden games and missing data produce no row", () => {
   assert.equal(isLowPercent(49), true);
   assert.equal(isLowPercent(50), false);
   assert.equal(isLowPercent(null), false);
+});
+
+test("status visibility: key, game list, and all-on defaults (#25)", () => {
+  assert.equal(STATUS_VISIBILITY_KEY, "statusVisibility");
+  assert.deepEqual(STATUS_VISIBILITY_GAMES, [
+    "genshin",
+    "starrail",
+    "endfield",
+  ]);
+  const allOn = { genshin: true, starrail: true, endfield: true };
+  assert.deepEqual(normalizeStatusVisibility(null), allOn);
+  assert.deepEqual(normalizeStatusVisibility(undefined), allOn);
+  assert.deepEqual(normalizeStatusVisibility("nope"), allOn);
+  // Partial values fill from the defaults; non-booleans are ignored.
+  assert.deepEqual(normalizeStatusVisibility({ starrail: false }), {
+    genshin: true,
+    starrail: false,
+    endfield: true,
+  });
+  assert.deepEqual(
+    normalizeStatusVisibility({ genshin: "off", endfield: 0 }),
+    allOn
+  );
+});
+
+test("status visibility: an off game loses its row, the others stay", () => {
+  const rows = buildStatusRows({
+    summaryRows,
+    sanity,
+    gameSettings: allVisible,
+    statusVisibility: { starrail: false },
+  });
+  assert.deepEqual(
+    rows.map((row) => row.id),
+    ["genshin", "endfield"]
+  );
+  const noEndfield = buildStatusRows({
+    summaryRows,
+    sanity,
+    gameSettings: allVisible,
+    statusVisibility: normalizeStatusVisibility({ endfield: false }),
+  });
+  assert.deepEqual(
+    noEndfield.map((row) => row.id),
+    ["genshin", "starrail"]
+  );
+  const none = buildStatusRows({
+    summaryRows,
+    sanity,
+    gameSettings: allVisible,
+    statusVisibility: { genshin: false, starrail: false, endfield: false },
+  });
+  assert.deepEqual(none, []);
+});
+
+test("status visibility: the #6 display switch still wins", () => {
+  const settings = normalizeGameSettings(null);
+  settings.display.genshin = false;
+  const rows = buildStatusRows({
+    summaryRows,
+    sanity,
+    gameSettings: settings,
+    statusVisibility: { genshin: true, starrail: true, endfield: true },
+  });
+  assert.deepEqual(
+    rows.map((row) => row.id),
+    ["starrail", "endfield"]
+  );
+});
+
+test("status visibility: storage round-trip keeps the choices", () => {
+  // The popup stores the normalized map; reading it back (through
+  // JSON, the way chrome.storage keeps it) must normalize to the
+  // same map and drive the same rows.
+  const chosen = normalizeStatusVisibility({
+    genshin: false,
+    endfield: false,
+  });
+  const revived = normalizeStatusVisibility(
+    JSON.parse(JSON.stringify(chosen))
+  );
+  assert.deepEqual(revived, chosen);
+  assert.equal(isStatusRowVisible(revived, "genshin"), false);
+  assert.equal(isStatusRowVisible(revived, "starrail"), true);
+  assert.equal(isStatusRowVisible(revived, "endfield"), false);
+  const rows = buildStatusRows({
+    summaryRows,
+    sanity,
+    gameSettings: allVisible,
+    statusVisibility: revived,
+  });
+  assert.deepEqual(
+    rows.map((row) => row.id),
+    ["starrail"]
+  );
+});
+
+test("views: main is the default, settings hides main (settings layout)", () => {
+  assert.deepEqual(POPUP_VIEWS, ["main", "settings"]);
+  assert.equal(DEFAULT_POPUP_VIEW, "main");
+  assert.equal(normalizePopupView("main"), "main");
+  assert.equal(normalizePopupView("settings"), "settings");
+  // Unknown names fall back to main — a corrupt caller can never
+  // strand the member on a blank popup.
+  assert.equal(normalizePopupView("bogus"), "main");
+  assert.equal(normalizePopupView(null), "main");
+  assert.equal(normalizePopupView(undefined), "main");
+  assert.deepEqual(popupViewState("main"), {
+    view: "main",
+    mainHidden: false,
+    settingsHidden: true,
+    settingsAriaExpanded: "false",
+  });
+  assert.deepEqual(popupViewState("settings"), {
+    view: "settings",
+    mainHidden: true,
+    settingsHidden: false,
+    settingsAriaExpanded: "true",
+  });
+});
+
+test("views: switching there and back restores the main view", () => {
+  // The round trip the buttons drive: open on main, 設定 shows
+  // the settings view, 戻る brings main back untouched.
+  let state = popupViewState("main");
+  assert.equal(state.mainHidden, false);
+  state = popupViewState("settings");
+  assert.equal(state.settingsHidden, false);
+  assert.equal(state.mainHidden, true);
+  state = popupViewState("main");
+  assert.deepEqual(state, popupViewState(DEFAULT_POPUP_VIEW));
+});
+
+test("views: settings controls live in the settings view, not main", async () => {
+  const html = await readFile(
+    new URL("../src/popup.html", import.meta.url),
+    "utf8"
+  );
+  const header = html.slice(0, html.indexOf('id="main-view"'));
+  const main = html.slice(
+    html.indexOf('id="main-view"'),
+    html.indexOf('id="settings-view"')
+  );
+  const settings = html.slice(
+    html.indexOf('id="settings-view"'),
+    html.indexOf("<footer")
+  );
+  // The 設定 button sits in the shared header.
+  assert.ok(header.includes('id="settings-button"'));
+  // Everything set-once moved: the theme control, the status
+  // visibility switches (#25), the automation master switch and
+  // the per-game switches (#6).
+  for (const id of [
+    "theme-toggle",
+    "status-visibility",
+    "auto-enabled",
+    "game-settings",
+    "settings-back",
+  ]) {
+    assert.ok(settings.includes(`id="${id}"`), `${id} in settings view`);
+    assert.ok(!main.includes(`id="${id}"`), `${id} not in main view`);
+  }
+  // Status and actions stayed: the status rows, the pairing
+  // section, the run-now button, and the receipt history (#26).
+  for (const id of [
+    "link-summary-body",
+    "auto-link-button",
+    "code-toggle",
+    "auto-run-now",
+    "history-button",
+    "auto-status",
+    "game-status",
+  ]) {
+    assert.ok(main.includes(`id="${id}"`), `${id} in main view`);
+    assert.ok(!settings.includes(`id="${id}"`), `${id} not in settings`);
+  }
+});
+
+test("collapsible: taps alternate expand → collapse → expand (#26)", () => {
+  let open = false;
+  const sequence = [open];
+  for (let i = 0; i < 3; i += 1) {
+    open = nextCollapsibleOpen(open);
+    sequence.push(open);
+  }
+  assert.deepEqual(sequence, [false, true, false, true]);
+  // Every derived piece of the toggle follows the same flag, so
+  // the box, the chevron, and aria-expanded cannot drift apart.
+  assert.deepEqual(collapsibleView(false), {
+    boxHidden: true,
+    openClass: false,
+    ariaExpanded: "false",
+  });
+  assert.deepEqual(collapsibleView(true), {
+    boxHidden: false,
+    openClass: true,
+    ariaExpanded: "true",
+  });
+  assert.equal(historyToggleLabel(false), "受け取り履歴を表示");
+  assert.equal(historyToggleLabel(true), "受け取り履歴を閉じる");
 });
 
 const log = [

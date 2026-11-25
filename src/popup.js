@@ -19,10 +19,18 @@ import {
   parseLinkSummaryCache,
 } from "./lib/hoyolab-link.mjs";
 import {
+  STATUS_ROW_LABELS,
+  STATUS_VISIBILITY_GAMES,
+  STATUS_VISIBILITY_KEY,
   THEME_STORAGE_KEY,
   buildHistoryEntries,
   buildStatusRows,
+  collapsibleView,
+  historyToggleLabel,
+  nextCollapsibleOpen,
   nextTheme,
+  normalizeStatusVisibility,
+  popupViewState,
   resolveTheme,
 } from "./lib/popup-view.mjs";
 import {
@@ -59,10 +67,47 @@ const result = document.getElementById("result");
 const linkState = document.getElementById("link-state");
 
 // ---------------------------------------------------------------
+// Views: the popup opens on the main view (status, actions, run
+// state, history). The header's 設定 button switches to the
+// settings view, which gathers everything the member sets once —
+// the theme, the status row visibility (#25), and the automation
+// switches (#6) — and its 戻る button switches back. The view is
+// not persisted: every open starts on main. The derivation lives
+// in the popup-view model; this wiring only applies it.
+
+const mainView = document.getElementById("main-view");
+const settingsView = document.getElementById("settings-view");
+const settingsButton = document.getElementById("settings-button");
+const settingsBack = document.getElementById("settings-back");
+let currentView = "main";
+
+function renderView() {
+  const state = popupViewState(currentView);
+  mainView.hidden = state.mainHidden;
+  settingsView.hidden = state.settingsHidden;
+  settingsButton.setAttribute("aria-expanded", state.settingsAriaExpanded);
+  currentView = state.view;
+}
+
+settingsButton.addEventListener("click", () => {
+  currentView = "settings";
+  renderView();
+});
+
+settingsBack.addEventListener("click", () => {
+  currentView = "main";
+  renderView();
+});
+
+renderView();
+
+// ---------------------------------------------------------------
 // Theme (#15): the stored choice wins; before any choice, the OS
-// preference decides. The toggle in the header flips and stores.
+// preference decides. The toggle lives in the settings view and
+// flips and stores.
 
 const themeToggle = document.getElementById("theme-toggle");
+const themeState = document.getElementById("theme-state");
 const SUN_ICON =
   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>';
 const MOON_ICON =
@@ -70,6 +115,7 @@ const MOON_ICON =
 
 function renderThemeIcon(theme) {
   themeToggle.innerHTML = theme === "dark" ? SUN_ICON : MOON_ICON;
+  themeState.textContent = theme === "dark" ? "ダーク" : "ライト";
 }
 
 async function initTheme() {
@@ -146,14 +192,34 @@ autoLinkButton.addEventListener("click", () => {
   void chrome.tabs.create({ url: AUTO_LINK_PAGE_URL });
 });
 
+// Collapsible sections (#26): one shared wiring for the quiet
+// rows that open a box (the pairing-code entry, the receipt
+// history). The open flag lives here — never read back from the
+// DOM — and every visible state of the toggle (the box, the
+// chevron class, aria-expanded) is derived from it through the
+// popup-view model, so repeated taps always alternate and the
+// button can never drift out of sync with the box.
+function wireCollapsible(button, box, onView) {
+  let open = !box.hidden;
+  const render = () => {
+    const view = collapsibleView(open);
+    box.hidden = view.boxHidden;
+    button.classList.toggle("open", view.openClass);
+    button.setAttribute("aria-expanded", view.ariaExpanded);
+    if (onView) onView(open);
+  };
+  button.addEventListener("click", () => {
+    open = nextCollapsibleOpen(open);
+    render();
+  });
+  render();
+}
+
 // The pairing-code entry is the fallback (#14): collapsed behind
 // a quiet row until the member opens it.
 const codeToggle = document.getElementById("code-toggle");
 const codeBox = document.getElementById("code-box");
-codeToggle.addEventListener("click", () => {
-  codeBox.hidden = !codeBox.hidden;
-  codeToggle.classList.toggle("open", !codeBox.hidden);
-});
+wireCollapsible(codeToggle, codeBox);
 
 linkButton.addEventListener("click", async () => {
   const pairingToken = tokenInput.value.trim();
@@ -286,6 +352,7 @@ const summarySection = document.getElementById("link-summary");
 const summaryBody = document.getElementById("link-summary-body");
 const summaryRefresh = document.getElementById("link-summary-refresh");
 const summarySync = document.getElementById("summary-sync");
+const statusVisibilityBox = document.getElementById("status-visibility");
 
 function summaryHint(text) {
   const hint = document.createElement("p");
@@ -383,6 +450,7 @@ function renderLinkSummary(result, context) {
       summaryRows: result.rows,
       sanity: context.sanity,
       gameSettings: context.gameSettings,
+      statusVisibility: context.statusVisibility,
     })
   );
 }
@@ -396,6 +464,7 @@ async function refreshLinkSummary() {
       "portalLinkedAt",
       SKPORT_STATE_KEY,
       GAME_SETTINGS_KEY,
+      STATUS_VISIBILITY_KEY,
     ]);
   } catch {
     stored = {};
@@ -404,6 +473,7 @@ async function refreshLinkSummary() {
   const context = {
     sanity: stored[SKPORT_STATE_KEY]?.sanity ?? null,
     gameSettings: normalizeGameSettings(stored[GAME_SETTINGS_KEY]),
+    statusVisibility: normalizeStatusVisibility(stored[STATUS_VISIBILITY_KEY]),
   };
   if (typeof token === "string" && token !== "") {
     summarySection.hidden = false;
@@ -417,6 +487,7 @@ async function refreshLinkSummary() {
           summaryRows: cache.rows,
           sanity: context.sanity,
           gameSettings: context.gameSettings,
+          statusVisibility: context.statusVisibility,
         })
       );
       renderSyncLine(cache.at);
@@ -474,6 +545,87 @@ async function refreshLinkSummary() {
 
 summaryRefresh.addEventListener("click", refreshLinkSummary);
 
+// Status row visibility (#25): one switch per status-capable
+// game, always listed in the settings view — even for games with
+// no data yet — so the member can pre-configure. The switches
+// only restyle the status section: they are re-read with every
+// summary render, and they never touch the fetch, the automation,
+// or the history. (The per-game "表示" switch in the automation
+// settings is a different, stronger setting: it also gates the
+// automation.)
+let statusVisibility = normalizeStatusVisibility(null);
+
+function renderStatusVisibility(visibility) {
+  const rows = STATUS_VISIBILITY_GAMES.map((id) => {
+    const row = document.createElement("div");
+    row.className = "game-row";
+
+    const icon = document.createElement("img");
+    icon.className = "game-icon";
+    icon.src = GAME_INFO[id].icon;
+    icon.alt = "";
+    icon.addEventListener("error", () => {
+      const dot = document.createElement("span");
+      dot.className = "game-dot";
+      dot.textContent = STATUS_ROW_LABELS[id].slice(0, 1);
+      icon.replaceWith(dot);
+    });
+    row.append(icon);
+
+    const label = document.createElement("span");
+    label.className = "game-label";
+    label.textContent = STATUS_ROW_LABELS[id];
+    row.append(label);
+
+    const toggleLabel = document.createElement("label");
+    toggleLabel.className = "mini-toggle";
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.className = "switch-input";
+    input.dataset.game = id;
+    input.checked = visibility[id];
+    const switchEl = document.createElement("span");
+    switchEl.className = "switch";
+    switchEl.setAttribute("aria-hidden", "true");
+    toggleLabel.append(input, switchEl, document.createTextNode("表示"));
+    row.append(toggleLabel);
+
+    return row;
+  });
+  statusVisibilityBox.replaceChildren(...rows);
+}
+
+async function initStatusVisibility() {
+  try {
+    const stored = await chrome.storage.local.get([STATUS_VISIBILITY_KEY]);
+    statusVisibility = normalizeStatusVisibility(stored[STATUS_VISIBILITY_KEY]);
+  } catch {
+    statusVisibility = normalizeStatusVisibility(null);
+  }
+  renderStatusVisibility(statusVisibility);
+}
+
+statusVisibilityBox.addEventListener("change", async (event) => {
+  const input = event.target;
+  const gameId = input?.dataset?.game;
+  if (!gameId) return;
+  statusVisibility = normalizeStatusVisibility({
+    ...statusVisibility,
+    [gameId]: input.checked,
+  });
+  try {
+    await chrome.storage.local.set({
+      [STATUS_VISIBILITY_KEY]: statusVisibility,
+    });
+  } catch {
+    // The choice still applies to this open.
+  }
+  renderStatusVisibility(statusVisibility);
+  refreshLinkSummary();
+});
+
+void initStatusVisibility();
+
 refreshLinkSummary();
 
 // ---------------------------------------------------------------
@@ -496,6 +648,7 @@ const autoCounts = document.getElementById("auto-counts");
 const autoLog = document.getElementById("auto-log");
 const autoRunNow = document.getElementById("auto-run-now");
 const historyButton = document.getElementById("history-button");
+const historyButtonLabel = document.getElementById("history-button-label");
 const historyBox = document.getElementById("history-box");
 const historyList = document.getElementById("history-list");
 const gameSettingsBox = document.getElementById("game-settings");
@@ -908,9 +1061,10 @@ function renderHistory(data) {
   historyList.replaceChildren(...entries.map(renderHistoryEntry));
 }
 
-historyButton.addEventListener("click", () => {
-  historyBox.hidden = !historyBox.hidden;
-  historyButton.classList.toggle("open", !historyBox.hidden);
+// The history toggle swaps its label with the state （表示 ⇄
+// 閉じる) on top of the shared collapsible wiring (#26).
+wireCollapsible(historyButton, historyBox, (open) => {
+  historyButtonLabel.textContent = historyToggleLabel(open);
 });
 
 async function refreshAuto() {
