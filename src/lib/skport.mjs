@@ -301,16 +301,18 @@ export function describeSkportFailureDetail(body) {
 }
 
 // ----------------------------------------------------------------
-// Sanity (理性) from the player card — BEST-EFFORT mapping.
+// Sanity (理性) from the player card.
 //
-// torikushiii/endfield-auto's normalized stats carry
-// stamina { current, max, recoveryTime }, read from the card
-// endpoint family; the raw card payload's exact nesting was not
-// directly confirmed during research (the two sources name
-// /web/v1/game/endfield/card and .../card/detail). The extractor
-// therefore searches a bounded depth for a stamina/sanity object
-// with numeric current/max instead of trusting one fixed path.
-// Anything not found renders as "unavailable" in the popup —
+// The live card/detail payload carries stamina at
+// data.detail.dungeon as { curStamina, maxStamina, maxTs }, where
+// maxTs is the instant stamina reaches max (yeci226's
+// endfield-discord-bot Skport API notes document this shape from
+// the real API). torikushiii/endfield-auto's normalized stats
+// instead carry stamina { current, max, recoveryTime }, read from
+// the same endpoint family. The extractor therefore accepts the
+// dungeon shape AND searches a bounded depth for a stamina/sanity
+// object with numeric current/max, instead of trusting one fixed
+// path. Anything not found renders as "unavailable" in the popup —
 // values are never fabricated.
 
 function sanityFromCandidate(value) {
@@ -326,6 +328,24 @@ function sanityFromCandidate(value) {
   };
 }
 
+// The raw card/detail dungeon block: curStamina/maxStamina, with
+// maxTs the full-recovery instant. maxTs is carried as
+// recoveryTime so estimateSanityFullAt treats it as the
+// full-recovery epoch (it accepts seconds or ms epochs).
+function sanityFromDungeon(value) {
+  if (!value || typeof value !== "object") return null;
+  const { curStamina, maxStamina } = value;
+  if (typeof curStamina !== "number" || typeof maxStamina !== "number") {
+    return null;
+  }
+  if (maxStamina <= 0 || curStamina < 0) return null;
+  return {
+    current: curStamina,
+    max: maxStamina,
+    recoveryTime: typeof value.maxTs === "number" ? value.maxTs : null,
+  };
+}
+
 export function extractSanity(body) {
   if (!body || typeof body !== "object") return null;
   const queue = [{ node: body, depth: 0 }];
@@ -336,6 +356,8 @@ export function extractSanity(body) {
       const found = sanityFromCandidate(node[key]);
       if (found) return found;
     }
+    const dungeon = sanityFromDungeon(node.dungeon);
+    if (dungeon) return dungeon;
     for (const value of Object.values(node)) {
       if (value && typeof value === "object") {
         queue.push({ node: value, depth: depth + 1 });

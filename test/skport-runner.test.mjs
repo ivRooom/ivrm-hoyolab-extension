@@ -302,3 +302,29 @@ test("refreshSanity reports unavailable when the card has no stamina shape", asy
   const result = await runner.refreshSanity();
   assert.deepEqual(result, { ok: false, reason: "unavailable" });
 });
+
+test("refreshSanity reads the real card/detail dungeon shape", async () => {
+  // The live card/detail payload shape (data.detail.dungeon),
+  // whose maxTs is the full-recovery instant in seconds.
+  const maxTs = Math.floor(NOW.getTime() / 1000) + 3600;
+  const { runner, data } = makeHarness({
+    card: {
+      status: 200,
+      body: {
+        code: 0,
+        data: {
+          detail: {
+            dungeon: { curStamina: 90, maxStamina: 240, maxTs },
+          },
+        },
+      },
+    },
+  });
+  const result = await runner.refreshSanity();
+  assert.equal(result.ok, true);
+  assert.equal(result.sanity.current, 90);
+  assert.equal(result.sanity.max, 240);
+  assert.equal(result.sanity.fullAt, maxTs * 1000);
+  assert.equal(result.sanity.estimated, false);
+  assert.equal(data.state.sanity.current, 90);
+});
