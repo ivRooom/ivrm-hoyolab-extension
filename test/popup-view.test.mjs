@@ -2,11 +2,18 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   HISTORY_LIMIT,
+  STATUS_VISIBILITY_GAMES,
+  STATUS_VISIBILITY_KEY,
   THEME_STORAGE_KEY,
   buildHistoryEntries,
   buildStatusRows,
+  collapsibleView,
+  historyToggleLabel,
   isLowPercent,
+  isStatusRowVisible,
+  nextCollapsibleOpen,
   nextTheme,
+  normalizeStatusVisibility,
   resolveTheme,
 } from "../src/lib/popup-view.mjs";
 import {
@@ -118,6 +125,125 @@ test("status rows: hidden games and missing data produce no row", () => {
   assert.equal(isLowPercent(49), true);
   assert.equal(isLowPercent(50), false);
   assert.equal(isLowPercent(null), false);
+});
+
+test("status visibility: key, game list, and all-on defaults (#25)", () => {
+  assert.equal(STATUS_VISIBILITY_KEY, "statusVisibility");
+  assert.deepEqual(STATUS_VISIBILITY_GAMES, [
+    "genshin",
+    "starrail",
+    "endfield",
+  ]);
+  const allOn = { genshin: true, starrail: true, endfield: true };
+  assert.deepEqual(normalizeStatusVisibility(null), allOn);
+  assert.deepEqual(normalizeStatusVisibility(undefined), allOn);
+  assert.deepEqual(normalizeStatusVisibility("nope"), allOn);
+  // Partial values fill from the defaults; non-booleans are ignored.
+  assert.deepEqual(normalizeStatusVisibility({ starrail: false }), {
+    genshin: true,
+    starrail: false,
+    endfield: true,
+  });
+  assert.deepEqual(
+    normalizeStatusVisibility({ genshin: "off", endfield: 0 }),
+    allOn
+  );
+});
+
+test("status visibility: an off game loses its row, the others stay", () => {
+  const rows = buildStatusRows({
+    summaryRows,
+    sanity,
+    gameSettings: allVisible,
+    statusVisibility: { starrail: false },
+  });
+  assert.deepEqual(
+    rows.map((row) => row.id),
+    ["genshin", "endfield"]
+  );
+  const noEndfield = buildStatusRows({
+    summaryRows,
+    sanity,
+    gameSettings: allVisible,
+    statusVisibility: normalizeStatusVisibility({ endfield: false }),
+  });
+  assert.deepEqual(
+    noEndfield.map((row) => row.id),
+    ["genshin", "starrail"]
+  );
+  const none = buildStatusRows({
+    summaryRows,
+    sanity,
+    gameSettings: allVisible,
+    statusVisibility: { genshin: false, starrail: false, endfield: false },
+  });
+  assert.deepEqual(none, []);
+});
+
+test("status visibility: the #6 display switch still wins", () => {
+  const settings = normalizeGameSettings(null);
+  settings.display.genshin = false;
+  const rows = buildStatusRows({
+    summaryRows,
+    sanity,
+    gameSettings: settings,
+    statusVisibility: { genshin: true, starrail: true, endfield: true },
+  });
+  assert.deepEqual(
+    rows.map((row) => row.id),
+    ["starrail", "endfield"]
+  );
+});
+
+test("status visibility: storage round-trip keeps the choices", () => {
+  // The popup stores the normalized map; reading it back (through
+  // JSON, the way chrome.storage keeps it) must normalize to the
+  // same map and drive the same rows.
+  const chosen = normalizeStatusVisibility({
+    genshin: false,
+    endfield: false,
+  });
+  const revived = normalizeStatusVisibility(
+    JSON.parse(JSON.stringify(chosen))
+  );
+  assert.deepEqual(revived, chosen);
+  assert.equal(isStatusRowVisible(revived, "genshin"), false);
+  assert.equal(isStatusRowVisible(revived, "starrail"), true);
+  assert.equal(isStatusRowVisible(revived, "endfield"), false);
+  const rows = buildStatusRows({
+    summaryRows,
+    sanity,
+    gameSettings: allVisible,
+    statusVisibility: revived,
+  });
+  assert.deepEqual(
+    rows.map((row) => row.id),
+    ["starrail"]
+  );
+});
+
+test("collapsible: taps alternate expand → collapse → expand (#26)", () => {
+  let open = false;
+  const sequence = [open];
+  for (let i = 0; i < 3; i += 1) {
+    open = nextCollapsibleOpen(open);
+    sequence.push(open);
+  }
+  assert.deepEqual(sequence, [false, true, false, true]);
+  // Every derived piece of the toggle follows the same flag, so
+  // the box, the chevron, and aria-expanded cannot drift apart.
+  assert.deepEqual(collapsibleView(false), {
+    boxHidden: true,
+    openClass: false,
+    ariaExpanded: "false",
+  });
+  assert.deepEqual(collapsibleView(true), {
+    boxHidden: false,
+    openClass: true,
+    ariaExpanded: "true",
+  });
+  assert.equal(historyToggleLabel(false), "受け取り履歴を表示");
+  assert.equal(historyToggleLabel(true), "受け取り履歴を閉じる");
 });
 
 const log = [

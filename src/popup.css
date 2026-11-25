@@ -317,6 +317,22 @@ section {
   min-height: 1em;
 }
 
+/* Status row visibility settings (#25): the per-game switches
+   reuse the .game-row / .mini-toggle rules of the automation
+   settings; this block only frames them inside the status
+   section. */
+
+.status-settings {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--hairline);
+}
+
+.status-settings .hint {
+  margin-top: 8px;
+  margin-bottom: 0;
+}
+
 /* ---------- Login line ---------- */
 
 .login-line {

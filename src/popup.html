@@ -63,6 +63,13 @@
           <p class="hint">読み込んでいます…</p>
         </div>
         <p id="summary-sync" class="sync-line"></p>
+        <div class="status-settings">
+          <div class="section-label">ステータス表示</div>
+          <div id="status-visibility"></div>
+          <p class="hint">
+            ステータス欄に出すゲームを選べます。表示だけの設定で、自動チェックイン・コード交換には影響しません。
+          </p>
+        </div>
       </section>
 
       <div class="login-line">
@@ -88,7 +95,13 @@
           ポータルにログインしていれば、コード入力なしで連携できます
         </p>
         <p id="link-state" class="status"></p>
-        <button id="code-toggle" type="button" class="fallback">
+        <button
+          id="code-toggle"
+          type="button"
+          class="fallback"
+          aria-expanded="false"
+          aria-controls="code-box"
+        >
           <span>ペアリングコードで連携</span><span class="chev">›</span>
         </button>
         <div id="code-box" hidden>
@@ -134,8 +147,15 @@
         <button id="auto-run-now" type="button" class="btn-secondary">
           今すぐ実行
         </button>
-        <button id="history-button" type="button" class="fallback">
-          <span>受け取り履歴を表示</span><span class="chev">›</span>
+        <button
+          id="history-button"
+          type="button"
+          class="fallback"
+          aria-expanded="false"
+          aria-controls="history-box"
+        >
+          <span id="history-button-label">受け取り履歴を表示</span
+          ><span class="chev">›</span>
         </button>
         <div id="history-box" hidden>
           <ul id="history-list" class="history"></ul>
