@@ -137,9 +137,10 @@ test("status visibility: key, game list, and all-on defaults (#25)", () => {
   assert.deepEqual(STATUS_VISIBILITY_GAMES, [
     "genshin",
     "starrail",
+    "zzz",
     "endfield",
   ]);
-  const allOn = { genshin: true, starrail: true, endfield: true };
+  const allOn = { genshin: true, starrail: true, zzz: true, endfield: true };
   assert.deepEqual(normalizeStatusVisibility(null), allOn);
   assert.deepEqual(normalizeStatusVisibility(undefined), allOn);
   assert.deepEqual(normalizeStatusVisibility("nope"), allOn);
@@ -147,6 +148,7 @@ test("status visibility: key, game list, and all-on defaults (#25)", () => {
   assert.deepEqual(normalizeStatusVisibility({ starrail: false }), {
     genshin: true,
     starrail: false,
+    zzz: true,
     endfield: true,
   });
   assert.deepEqual(
@@ -197,6 +199,59 @@ test("status visibility: the #6 display switch still wins", () => {
   assert.deepEqual(
     rows.map((row) => row.id),
     ["starrail", "endfield"]
+  );
+});
+
+test("status rows: the ZZZ battery row rides the summary (#1812)", () => {
+  // The row buildLinkSummaryRows produces for a summary carrying
+  // games.zzz, in the shape buildStatusRows consumes.
+  const zzzSummaryRow = {
+    id: "zzz",
+    label: "ゼンレスゾーンゼロ",
+    icon: "icon-zzz.png",
+    metricLabel: "バッテリー",
+    current: 132,
+    max: 240,
+    percent: 55,
+    explorationPercent: null,
+  };
+  const withZzz = [...summaryRows, zzzSummaryRow];
+  const rows = buildStatusRows({
+    summaryRows: withZzz,
+    sanity,
+    gameSettings: allVisible,
+  });
+  // Summary order is kept; the Endfield sanity row still comes last.
+  assert.deepEqual(
+    rows.map((row) => row.id),
+    ["genshin", "starrail", "zzz", "endfield"]
+  );
+  assert.deepEqual(rows[2], {
+    ...zzzSummaryRow,
+    low: false,
+  });
+  // The #25 visibility switch hides it like any other game...
+  const hiddenByVisibility = buildStatusRows({
+    summaryRows: withZzz,
+    sanity,
+    gameSettings: allVisible,
+    statusVisibility: { zzz: false },
+  });
+  assert.deepEqual(
+    hiddenByVisibility.map((row) => row.id),
+    ["genshin", "starrail", "endfield"]
+  );
+  // ...and so does the #6 display switch.
+  const settings = normalizeGameSettings(null);
+  settings.display.zzz = false;
+  const hiddenByDisplay = buildStatusRows({
+    summaryRows: withZzz,
+    sanity,
+    gameSettings: settings,
+  });
+  assert.deepEqual(
+    hiddenByDisplay.map((row) => row.id),
+    ["genshin", "starrail", "endfield"]
   );
 });
 

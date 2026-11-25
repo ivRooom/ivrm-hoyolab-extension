@@ -78,7 +78,12 @@ export function popupViewState(name) {
 // on, so existing users see no change.
 
 export const STATUS_VISIBILITY_KEY = "statusVisibility";
-export const STATUS_VISIBILITY_GAMES = ["genshin", "starrail", "endfield"];
+export const STATUS_VISIBILITY_GAMES = [
+  "genshin",
+  "starrail",
+  "zzz",
+  "endfield",
+];
 
 export function defaultStatusVisibility() {
   const visibility = {};
@@ -105,11 +110,11 @@ export function isStatusRowVisible(visibility, gameId) {
 //
 // Rows come only from data that actually exists — the same rule
 // the summary section has always followed. The portal summary
-// covers Genshin / Star Rail; the Endfield row is built from the
-// sanity reading the Skport worker caches. ZZZ's battery charge
-// has no data source today (the portal summary does not carry it
-// and HoYoLAB's note for ZZZ is not fetched), so no ZZZ row is
-// fabricated for the mock's sake.
+// covers Genshin / Star Rail and, since ivrm-web #1812, ZZZ's
+// battery charge; the Endfield row is built from the sanity
+// reading the Skport worker caches. A game with no data (not
+// registered, fetch failed) gets no row — nothing is fabricated
+// for the mock's sake.
 //
 // A game the member hid — in the per-game settings (display off)
 // or in the status visibility switches above (#25) — gets no row.
