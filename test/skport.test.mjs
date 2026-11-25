@@ -227,6 +227,45 @@ test("sanity extraction finds the stamina shape at the documented nests", () => 
   );
 });
 
+test("sanity extraction reads the real card/detail dungeon shape", () => {
+  // The live card/detail payload, as documented from the real
+  // API by yeci226/endfield-discord-bot: stamina lives at
+  // data.detail.dungeon as curStamina/maxStamina, and maxTs is
+  // the instant stamina reaches max (carried as recoveryTime).
+  assert.deepEqual(
+    extractSanity({
+      code: 0,
+      data: {
+        detail: {
+          dungeon: { curStamina: 87, maxStamina: 240, maxTs: 1768600000 },
+        },
+      },
+    }),
+    { current: 87, max: 240, recoveryTime: 1768600000 }
+  );
+  // A dungeon block without maxTs still yields the reading.
+  assert.deepEqual(
+    extractSanity({
+      code: 0,
+      data: { detail: { dungeon: { curStamina: 0, maxStamina: 240 } } },
+    }),
+    { current: 0, max: 240, recoveryTime: null }
+  );
+  // Non-numeric or degenerate dungeon values are not a reading.
+  assert.equal(
+    extractSanity({
+      data: { detail: { dungeon: { curStamina: "87", maxStamina: 240 } } },
+    }),
+    null
+  );
+  assert.equal(
+    extractSanity({
+      data: { detail: { dungeon: { curStamina: 87, maxStamina: 0 } } },
+    }),
+    null
+  );
+});
+
 test("full-recovery estimates prefer the card's recoveryTime", () => {
   const now = Date.parse("2026-01-15T00:00:00Z");
   // Already full.

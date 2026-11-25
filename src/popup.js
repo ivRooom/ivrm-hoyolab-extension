@@ -780,6 +780,29 @@ function renderGameSettings(data) {
   gameSettingsBox.replaceChildren(...rows);
 }
 
+// Why the last on-demand sanity refresh failed, as the worker
+// reported it ({ ok: false, reason }); null until the refresh
+// button is used in this popup session. Surfacing it matters:
+// without it, every failure — logged out, no role, unparsable
+// card — looked like "not fetched yet" (#28).
+let sanityRefreshReason = null;
+
+function sanityUnavailableText(data) {
+  if (
+    sanityRefreshReason === "not_logged_in" ||
+    data.skportState.sessionMissing
+  ) {
+    return "Skport にログインすると理性が表示されます。";
+  }
+  if (sanityRefreshReason === "no_role") {
+    return "エンドフィールドのロールが見つかりませんでした。Skport でゲーム連携を確認してください。";
+  }
+  if (sanityRefreshReason) {
+    return "理性の取得に失敗しました。時間をおいてもう一度お試しください。";
+  }
+  return "まだ取得していません。下のボタンで取得できます。";
+}
+
 // The Endfield sanity reading the worker cached, shown only while
 // the game is visible (#6). The refresh button asks the worker for
 // a fresh reading; viewing works with automation off.
@@ -835,9 +858,7 @@ function renderGameStatus(data) {
   } else {
     const note = document.createElement("p");
     note.className = "hint";
-    note.textContent = data.skportState.sessionMissing
-      ? "Skport にログインすると理性が表示されます。"
-      : "まだ取得していません。下のボタンで取得できます。";
+    note.textContent = sanityUnavailableText(data);
     box.append(note);
   }
 
@@ -1098,10 +1119,18 @@ gameStatusBox.addEventListener("click", async (event) => {
   const button = event.target;
   button.disabled = true;
   try {
-    await chrome.runtime.sendMessage({ type: "skport:refreshSanity" });
+    const result = await chrome.runtime.sendMessage({
+      type: "skport:refreshSanity",
+    });
+    sanityRefreshReason =
+      result && result.ok === false && typeof result.reason === "string"
+        ? result.reason
+        : null;
   } catch {
     // The worker answers when the refresh finishes; a closed
-    // channel just means we re-read the state below.
+    // channel just means we re-read the state below. The reason
+    // is unknown then, so surface it as a generic failure (#28).
+    sanityRefreshReason = "failed";
   } finally {
     button.disabled = false;
     await refreshAuto();
