@@ -24,6 +24,13 @@ const fullBody = {
       trailblazeMax: 240,
       explorationPercent: null,
     },
+    zzz: {
+      batteryCurrent: 132,
+      batteryMax: 240,
+      vitalityCurrent: 3,
+      vitalityMax: 4,
+      explorationPercent: null,
+    },
   },
   updatedAt: {
     notes: "2026-11-23T10:00:00.000Z",
@@ -53,6 +60,16 @@ test("rows are built per game with bar percent and exploration", () => {
       percent: 100,
       explorationPercent: null,
     },
+    {
+      id: "zzz",
+      label: "ゼンレスゾーンゼロ",
+      icon: "icon-zzz.png",
+      metricLabel: "バッテリー",
+      current: 132,
+      max: 240,
+      percent: 55,
+      explorationPercent: null,
+    },
   ]);
 });
 
@@ -66,6 +83,9 @@ test("unregistered games and incomplete pairs are skipped", () => {
         trailblazeMax: 240,
         explorationPercent: null,
       },
+      // A ZZZ entry without the battery pair (an older or partial
+      // summary) is skipped the same way.
+      zzz: { batteryCurrent: 132, batteryMax: null },
     },
     updatedAt: { notes: null, progress: null },
   });
@@ -129,7 +149,7 @@ test("a 200 summary maps to ok with rows, sent as Bearer to the summary URL", as
   });
   const result = await fetchLinkSummary(fetchFn, "member-uuid.signature");
   assert.equal(result.kind, "ok");
-  assert.equal(result.rows.length, 2);
+  assert.equal(result.rows.length, 3);
   assert.equal(result.updatedAt, "2026-11-23T10:00:00.000Z");
   assert.equal(calls.length, 1);
   assert.equal(calls[0].url, LINK_SUMMARY_URL);

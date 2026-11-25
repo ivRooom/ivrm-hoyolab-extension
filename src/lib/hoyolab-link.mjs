@@ -1,5 +1,6 @@
 // Pure helpers for the portal link summary — the "current status"
-// section of the popup (resin / trailblaze power / exploration).
+// section of the popup (resin / trailblaze power / battery charge /
+// exploration).
 // Kept free of chrome.* APIs so they can be unit-tested with plain
 // node --test.
 //
@@ -83,6 +84,17 @@ const SUMMARY_GAMES = [
     metricLabel: "開拓力",
     currentKey: "trailblazeCurrent",
     maxKey: "trailblazeMax",
+  },
+  {
+    // ZZZ's battery charge rides the same summary since ivrm-web
+    // #1812; older servers simply omit games.zzz and the row stays
+    // absent, exactly like an unregistered game.
+    id: "zzz",
+    label: "ゼンレスゾーンゼロ",
+    icon: "icon-zzz.png",
+    metricLabel: "バッテリー",
+    currentKey: "batteryCurrent",
+    maxKey: "batteryMax",
   },
 ];
 
